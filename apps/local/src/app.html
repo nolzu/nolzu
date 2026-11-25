@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nolzu</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!-- The chosen theme, set before the first paint so the page never flashes the other one. The key is THEME_KEY in @nolzu/ui. -->
+    <script>
+      try {
+        const theme = localStorage.getItem('nolzu-theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+      } catch {}
+    </script>
+    <!-- Board or List, kept per board by BoardPage under nolzu.view.<board>. The server cannot read it, so
+         without this the page draws Board pressed until it hydrates. BoardPage keeps the attribute after. -->
+    <script>
+      try {
+        const board = location.pathname.match(/^\/b\/([^/]+)\/?$/);
+        if (board && localStorage.getItem('nolzu.view.' + board[1]) === 'list') document.documentElement.dataset.boardView = 'list';
+      } catch {}
+    </script>
+    %sveltekit.head%
+  </head>
+  <body>
+    <div style="display: contents">%sveltekit.body%</div>
+  </body>
+</html>

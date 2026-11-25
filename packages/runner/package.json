@@ -1,0 +1,15 @@
+{
+  "name": "@nolzu/runner",
+  "private": true,
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./detect": "./src/detect.ts"
+  },
+  "dependencies": {
+    "@nolzu/core": "workspace:*",
+    "@nolzu/protocol": "workspace:*"
+  }
+}

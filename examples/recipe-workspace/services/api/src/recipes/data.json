@@ -1,0 +1,7 @@
+[
+  { "id": 1, "title": "Tomato soup", "minutes": 25, "tags": ["soup", "warm"] },
+  { "id": 2, "title": "Pancakes", "minutes": 20, "tags": ["breakfast", "sweet"] },
+  { "id": 3, "title": "Lentil stew", "minutes": 45, "tags": ["stew", "warm"] },
+  { "id": 4, "title": "Garlic bread", "minutes": 15, "tags": ["side"] },
+  { "id": 5, "title": "Rice pudding", "minutes": 35, "tags": ["sweet"] }
+]

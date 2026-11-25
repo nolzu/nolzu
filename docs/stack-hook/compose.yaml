@@ -1,0 +1,22 @@
+# The two-repository recipe workspace as a stack. stack.sh sets API_DIR and WEB_DIR to the folders
+# a card should run: its own checkout of a repository, or the project's base one.
+services:
+  api:
+    image: node:24-alpine
+    working_dir: /app
+    command: ["node", "src/server.ts"]
+    volumes:
+      - ${API_DIR:?stack.sh sets API_DIR}:/app:ro
+    ports:
+      - "8787:8787"
+    # So up --wait returns once the api answers, and QA never starts against a server still booting.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8787/recipes').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 2s
+      retries: 15
+  web:
+    image: nginx:alpine
+    volumes:
+      - ${WEB_DIR:?stack.sh sets WEB_DIR}:/usr/share/nginx/html:ro
+    ports:
+      - "8080:80"

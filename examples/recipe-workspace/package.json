@@ -1,0 +1,8 @@
+{
+  "name": "recipe-workspace",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test services/api/src/recipes/list.test.ts"
+  }
+}

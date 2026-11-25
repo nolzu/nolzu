@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A newer push to the same pull request or branch stops the run it replaces.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # One job and not two: GitHub bills each job rounded up to a whole minute, and the scan alone took
+  # eight seconds. The secret scan reads the whole history, so the checkout fetches all of it.
+  checks:
+    runs-on: ubuntu-24.04
+    # A hung test stops here, not at GitHub's six hours.
+    timeout-minutes: 30
+    # Each action by its commit, because a tag can be moved to other code.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      # The Linux wall is bubblewrap, and the tests start real walls. Ubuntu 24.04 blocks the user
+      # namespaces it needs, so the runner allows them, as Nolzu tells a person on Ubuntu to.
+      - name: Linux wall
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: pnpm test
+      - run: NOLZU_FAKE_AGENT=1 pnpm smoke
+      - run: pnpm build
+      - run: pnpm pack:check
+      - run: pnpm skills:lint
+      - name: Dash check
+        run: |
+          # The UTF-8 bytes of the en dash and the em dash. Box drawing characters do not match.
+          pattern="$(printf '\342\200\223|\342\200\224')"
+          if git grep -n -E "$pattern" -- '*.md' '*.svelte' '*.html'; then
+            echo "Replace em and en dashes with a comma, a period or parentheses."
+            exit 1
+          fi
+      - name: Secret scan
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          # From gitleaks_8.30.1_checksums.txt in the release, pinned here so a changed download fails.
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSLo "$RUNNER_TEMP/$archive" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/$archive" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git --redact --verbose

@@ -1,0 +1,43 @@
+name: Bug report
+description: Something in Nolzu does not work as it says.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. A security problem goes by email to security@nolzu.com, not here, as SECURITY.md says.
+        Remove tokens, client names and private paths from what you paste.
+  - type: input
+    id: version
+    attributes:
+      label: Nolzu version
+      description: What `npx nolzu@latest --version` prints.
+      placeholder: nolzu 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 15.4
+    validations:
+      required: true
+  - type: input
+    id: engine
+    attributes:
+      label: Engine and its version
+      description: The engine the run used, and what its `--version` prints. Leave empty when no run was involved.
+      placeholder: Claude Code 2.1.0
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Run log
+      description: For a problem in a run, the end of its log. The card's Log tab shows it, and the file is in the data folder under `logs/` (`~/.nolzu/logs/` unless you set `NOLZU_DATA_DIR`).
+      render: text

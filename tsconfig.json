@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["packages", "apps/local/scripts", "scripts", "test", "*.ts"],
+  // Mounted tests run in a DOM, and the shared lib has none on purpose, so core cannot reach for a
+  // browser global without the typecheck saying so. packages/ui checks them with its own config.
+  "exclude": ["packages/ui/**/*.mount.test.ts", "packages/ui/test/mounted.svelte.ts"]
+}

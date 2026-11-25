@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "noEmit": false,
+    "declaration": true,
+    "rewriteRelativeImportExtensions": true,
+    "lib": ["es2024", "dom"]
+  },
+  "include": ["src"],
+  "exclude": ["**/*.test.ts"]
+}

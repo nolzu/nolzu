@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"7b2e4c19-8d3a-4f61-b0e5-2a9c6d1f4e83","model":"sonnet","cwd":"/workspace/recipe-app","tools":["Read"]}
+{"type":"assistant","session_id":"7b2e4c19-8d3a-4f61-b0e5-2a9c6d1f4e83","message":{"role":"assistant","content":[{"type":"text","text":"Where the recipe list comes from"}]},"parent_tool_use_id":null}
+{"type":"result","subtype":"success","is_error":false,"api_error_status":null,"duration_ms":1200,"num_turns":1,"result":"Where the recipe list comes from","total_cost_usd":0.0009,"usage":{"input_tokens":4,"output_tokens":9,"cache_read_input_tokens":900,"cache_creation_input_tokens":0},"session_id":"7b2e4c19-8d3a-4f61-b0e5-2a9c6d1f4e83"}

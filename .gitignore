@@ -1,0 +1,12 @@
+node_modules/
+.claude/
+.vitest/
+.svelte-kit/
+build/
+dist/
+coverage/
+*.log
+.env
+.env.*
+.DS_Store
+*.pid

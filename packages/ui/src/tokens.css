@@ -1,0 +1,302 @@
+/* Design tokens. Dark is the default. Light overrides it, either by request
+   (`data-theme="light"`) or by system preference when no theme is set. */
+
+/* The fonts ship in fonts/ with their license (OFL.txt), so no page asks another host for a font.
+   One variable file per family covers every weight. */
+@font-face {
+  font-family: "Geist";
+  src: url("./fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("./fonts/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* surfaces, from back to front */
+  --bg: oklch(0.145 0.006 75);
+  --rail: oklch(0.163 0.006 75);
+  --panel: oklch(0.183 0.007 75);
+  --card: oklch(0.212 0.008 75);
+  --card-2: oklch(0.245 0.009 75);
+  --line: oklch(0.262 0.007 75);
+  --line-2: oklch(0.32 0.008 75);
+
+  /* inks; faint is for non-text only */
+  --ink: oklch(0.94 0.006 80);
+  --ink-2: oklch(0.82 0.007 80);
+  --ink-3: oklch(0.75 0.008 80);
+  --muted: oklch(0.68 0.008 80);
+  --faint: oklch(0.53 0.008 80);
+
+  /* status, each with the tint of the box behind it */
+  --amber: oklch(0.81 0.14 72);
+  --amber-bg: oklch(0.81 0.14 72 / 0.11);
+  --amber-line: oklch(0.81 0.14 72 / 0.42);
+  --hatch: oklch(0.81 0.14 72 / 0.035);
+  --green: oklch(0.80 0.15 152);
+  --green-bg: oklch(0.80 0.15 152 / 0.12);
+  --red: oklch(0.72 0.18 25);
+  --red-bg: oklch(0.72 0.18 25 / 0.13);
+  --blue: oklch(0.77 0.11 245);
+  --blue-bg: oklch(0.77 0.11 245 / 0.12);
+  --violet: oklch(0.78 0.13 300);
+  --violet-bg: oklch(0.78 0.13 300 / 0.13);
+
+  /* the ink on a status fill; status-ink and amber-tint are the old names */
+  --on-status: oklch(0.17 0.01 75);
+  --status-ink: oklch(0.17 0.01 75);
+  --amber-tint: var(--amber-bg);
+
+  /* cream: the primary button, count badges, switches that are on */
+  --accent: oklch(0.93 0.03 85);
+  --accent-ink: oklch(0.18 0.01 75);
+
+  /* only for parts that float */
+  --shadow: 0 12px 32px oklch(0 0 0 / 0.42), 0 2px 6px oklch(0 0 0 / 0.3);
+
+  /* the page behind an open dialog */
+  --scrim: oklch(0.1 0.005 75 / 0.6);
+
+  /* fonts: the bundled files first, then the system stacks while a file loads */
+  --font-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* type scale */
+  --text-2xs: 11px; /* state words, labels, meta rows */
+  --text-xs: 12px; /* dense rows */
+  --text-sm: 13px; /* UI base, section titles */
+  --text-card-title: 13.5px;
+  --text-base: 14px; /* body text, prose */
+  --text-md: 15px; /* the top bar title */
+  --text-lg: 18px; /* the lede, and some page titles */
+  --text-xl: 26px; /* page titles */
+  --text-2xl: 40px; /* the first run question */
+  --mono-3xs: 10.5px; /* key caps */
+  --mono-2xs: 11px; /* chips */
+  --mono-card-key: 11.5px;
+  --mono-xs: 12px;
+  --mono-sm: 13px;
+
+  /* 4px spacing grid */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  /* radius by part: key caps and inline code, chips, buttons and inputs, cards, panels, dialogs */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 14px;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: oklch(0.968 0.004 80);
+  --rail: oklch(0.944 0.006 80);
+  --panel: oklch(0.984 0.003 80);
+  --card: oklch(0.998 0.002 80);
+  --card-2: oklch(0.958 0.005 80);
+  --line: oklch(0.90 0.006 80);
+  --line-2: oklch(0.85 0.007 80);
+
+  --ink: oklch(0.21 0.008 75);
+  --ink-2: oklch(0.35 0.008 75);
+  --ink-3: oklch(0.42 0.008 75);
+  --muted: oklch(0.48 0.008 75);
+  --faint: oklch(0.62 0.006 80);
+
+  --amber: oklch(0.51 0.14 62);
+  --amber-bg: oklch(0.78 0.15 72 / 0.17);
+  --amber-line: oklch(0.62 0.14 65 / 0.55);
+  --hatch: oklch(0.70 0.14 70 / 0.07);
+  --green: oklch(0.48 0.13 152);
+  --green-bg: oklch(0.62 0.14 152 / 0.13);
+  --red: oklch(0.52 0.19 25);
+  --red-bg: oklch(0.62 0.19 25 / 0.10);
+  --blue: oklch(0.50 0.15 250);
+  --blue-bg: oklch(0.62 0.13 250 / 0.11);
+  --violet: oklch(0.50 0.18 300);
+  --violet-bg: oklch(0.62 0.16 300 / 0.11);
+
+  --on-status: oklch(0.99 0 0);
+  --status-ink: oklch(0.99 0 0);
+  --amber-tint: var(--amber-bg);
+
+  --accent: oklch(0.22 0.01 75);
+  --accent-ink: oklch(0.97 0.01 85);
+
+  --shadow: 0 12px 32px oklch(0.20 0.01 75 / 0.12), 0 2px 6px oklch(0.20 0.01 75 / 0.08);
+  --scrim: oklch(0.25 0.01 75 / 0.38);
+}
+
+/* Explicit dark, so a theme toggle can force dark when the system asks for light. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* surfaces, from back to front */
+  --bg: oklch(0.145 0.006 75);
+  --rail: oklch(0.163 0.006 75);
+  --panel: oklch(0.183 0.007 75);
+  --card: oklch(0.212 0.008 75);
+  --card-2: oklch(0.245 0.009 75);
+  --line: oklch(0.262 0.007 75);
+  --line-2: oklch(0.32 0.008 75);
+
+  /* inks; faint is for non-text only */
+  --ink: oklch(0.94 0.006 80);
+  --ink-2: oklch(0.82 0.007 80);
+  --ink-3: oklch(0.75 0.008 80);
+  --muted: oklch(0.68 0.008 80);
+  --faint: oklch(0.53 0.008 80);
+
+  /* status, each with the tint of the box behind it */
+  --amber: oklch(0.81 0.14 72);
+  --amber-bg: oklch(0.81 0.14 72 / 0.11);
+  --amber-line: oklch(0.81 0.14 72 / 0.42);
+  --hatch: oklch(0.81 0.14 72 / 0.035);
+  --green: oklch(0.80 0.15 152);
+  --green-bg: oklch(0.80 0.15 152 / 0.12);
+  --red: oklch(0.72 0.18 25);
+  --red-bg: oklch(0.72 0.18 25 / 0.13);
+  --blue: oklch(0.77 0.11 245);
+  --blue-bg: oklch(0.77 0.11 245 / 0.12);
+  --violet: oklch(0.78 0.13 300);
+  --violet-bg: oklch(0.78 0.13 300 / 0.13);
+
+  /* the ink on a status fill; status-ink and amber-tint are the old names */
+  --on-status: oklch(0.17 0.01 75);
+  --status-ink: oklch(0.17 0.01 75);
+  --amber-tint: var(--amber-bg);
+
+  /* cream: the primary button, count badges, switches that are on */
+  --accent: oklch(0.93 0.03 85);
+  --accent-ink: oklch(0.18 0.01 75);
+
+  /* only for parts that float */
+  --shadow: 0 12px 32px oklch(0 0 0 / 0.42), 0 2px 6px oklch(0 0 0 / 0.3);
+
+  /* the page behind an open dialog */
+  --scrim: oklch(0.1 0.005 75 / 0.6);
+
+  /* fonts: the bundled files first, then the system stacks while a file loads */
+  --font-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* type scale */
+  --text-2xs: 11px; /* state words, labels, meta rows */
+  --text-xs: 12px; /* dense rows */
+  --text-sm: 13px; /* UI base, section titles */
+  --text-card-title: 13.5px;
+  --text-base: 14px; /* body text, prose */
+  --text-md: 15px; /* the top bar title */
+  --text-lg: 18px; /* the lede, and some page titles */
+  --text-xl: 26px; /* page titles */
+  --text-2xl: 40px; /* the first run question */
+  --mono-3xs: 10.5px; /* key caps */
+  --mono-2xs: 11px; /* chips */
+  --mono-card-key: 11.5px;
+  --mono-xs: 12px;
+  --mono-sm: 13px;
+
+  /* 4px spacing grid */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  /* radius by part: key caps and inline code, chips, buttons and inputs, cards, panels, dialogs */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 14px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+
+    --bg: oklch(0.968 0.004 80);
+    --rail: oklch(0.944 0.006 80);
+    --panel: oklch(0.984 0.003 80);
+    --card: oklch(0.998 0.002 80);
+    --card-2: oklch(0.958 0.005 80);
+    --line: oklch(0.90 0.006 80);
+    --line-2: oklch(0.85 0.007 80);
+
+    --ink: oklch(0.21 0.008 75);
+    --ink-2: oklch(0.35 0.008 75);
+    --ink-3: oklch(0.42 0.008 75);
+    --muted: oklch(0.48 0.008 75);
+    --faint: oklch(0.62 0.006 80);
+
+    --amber: oklch(0.51 0.14 62);
+    --amber-bg: oklch(0.78 0.15 72 / 0.17);
+    --amber-line: oklch(0.62 0.14 65 / 0.55);
+    --hatch: oklch(0.70 0.14 70 / 0.07);
+    --green: oklch(0.48 0.13 152);
+    --green-bg: oklch(0.62 0.14 152 / 0.13);
+    --red: oklch(0.52 0.19 25);
+    --red-bg: oklch(0.62 0.19 25 / 0.10);
+    --blue: oklch(0.50 0.15 250);
+    --blue-bg: oklch(0.62 0.13 250 / 0.11);
+    --violet: oklch(0.50 0.18 300);
+    --violet-bg: oklch(0.62 0.16 300 / 0.11);
+
+    --on-status: oklch(0.99 0 0);
+    --status-ink: oklch(0.99 0 0);
+    --amber-tint: var(--amber-bg);
+
+    --accent: oklch(0.22 0.01 75);
+    --accent-ink: oklch(0.97 0.01 85);
+
+    --shadow: 0 12px 32px oklch(0.20 0.01 75 / 0.12), 0 2px 6px oklch(0.20 0.01 75 / 0.08);
+    --scrim: oklch(0.25 0.01 75 / 0.38);
+  }
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

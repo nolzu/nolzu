@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","session_id":"2c5b8f30-9d1a-4b6e-8c47-3a0f5e2d1b04","model":"sonnet","cwd":"/workspace/recipe-app","tools":["Read","Grep","Glob","Write","Edit","Bash"],"apiKeySource":"none"}
+{"type":"system","subtype":"api_retry","attempt":1,"max_retries":3,"retry_delay_ms":2000,"error_status":529,"error":"overloaded"}
+{"type":"system","subtype":"api_retry","attempt":2,"max_retries":3,"retry_delay_ms":4000,"error_status":529,"error":"overloaded"}
+{"type":"system","subtype":"api_retry","attempt":3,"max_retries":3,"retry_delay_ms":8000,"error_status":529,"error":"overloaded"}
+{"type":"result","subtype":"success","is_error":true,"api_error_status":529,"duration_ms":14350,"num_turns":0,"result":"API Error: 529 Overloaded","total_cost_usd":0,"usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"session_id":"2c5b8f30-9d1a-4b6e-8c47-3a0f5e2d1b04"}

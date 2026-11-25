@@ -1,0 +1,21 @@
+{
+  "name": "@nolzu/protocol",
+  "private": true,
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nolzu/nolzu.git",
+    "directory": "packages/protocol"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  }
+}

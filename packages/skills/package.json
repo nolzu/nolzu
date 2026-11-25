@@ -1,0 +1,16 @@
+{
+  "name": "@nolzu/skills",
+  "private": true,
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json",
+    "./skills/*": "./skills/*"
+  },
+  "dependencies": {
+    "@nolzu/protocol": "workspace:*",
+    "yaml": "^2.9.1"
+  }
+}

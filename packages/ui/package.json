@@ -1,0 +1,48 @@
+{
+  "name": "@nolzu/ui",
+  "private": true,
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nolzu/nolzu.git",
+    "directory": "packages/ui"
+  },
+  "exports": {
+    ".": {
+      "svelte": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./tokens.css": "./src/tokens.css",
+    "./theme": "./src/theme.ts",
+    "./knowledge": "./src/knowledge.ts",
+    "./qa": "./src/ticket/qa.ts",
+    "./comments": "./src/ticket/comments.ts",
+    "./plan": "./src/ticket/plan.ts",
+    "./review": "./src/ticket/review.ts",
+    "./fixture": "./src/board/fixture.ts"
+  },
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
+  },
+  "dependencies": {
+    "@nolzu/protocol": "workspace:*",
+    "dompurify": "^3.4.17",
+    "marked": "^18.0.13"
+  },
+  "peerDependencies": {
+    "svelte": "^5.57.0"
+  },
+  "devDependencies": {
+    "svelte": "5.57.0",
+    "svelte-check": "4.7.6",
+    "typescript": "6.0.3"
+  }
+}

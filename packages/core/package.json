@@ -1,0 +1,25 @@
+{
+  "name": "@nolzu/core",
+  "private": true,
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nolzu/nolzu.git",
+    "directory": "packages/core"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node/index.ts"
+  },
+  "dependencies": {
+    "@nolzu/protocol": "workspace:*"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  }
+}
