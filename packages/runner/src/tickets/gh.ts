@@ -22,10 +22,12 @@ export interface GhOptions {
   // The PATH `gh` is looked up on. The login shell's by default, and a test's own folder in a test.
   path?: () => string;
   maxStdout?: number;
+  // What to do about an answer over the cap, for a read that is not one issue, such as a CI log.
+  cut?: string;
 }
 
 export function ghRunner(options: GhOptions = {}): RunGh {
-  const run = cliRunner({ bin: 'gh', system: 'GitHub', install: INSTALL, cut: CUT, ...options });
+  const run = cliRunner({ bin: 'gh', system: 'GitHub', install: INSTALL, ...options, cut: options.cut ?? CUT });
 
   return async (args, signal) => {
     const answer = await run(args, signal);

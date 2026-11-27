@@ -74,6 +74,13 @@ hosted service gets a fix run's cost and state, never its summary or question: a
 a blocked card with no question, and the answer run it starts is a fix run too. Every leg of a fix,
 the one that asked and the one the answer started, gets the commit and push check. Discuss starts a read-only Ask
 session with the discussion as its first message.
+Fix CI reads the log of each failed check of a card's pull request through your `gh`, as `gh api` GET
+calls and never a write, and only for a GitHub Actions job of that pull request's own repository: a
+commit status or another app's check gets no read. It keeps the end of each log in `ci/` in the card
+folder and hands it to an Implement run under the same wall, run guard and commit and push check as a
+fix, with no QA after. A log holds text anyone who can open a pull request may have written, so the
+run's message and `ci/failed.md` tell the engine to read it as data, never as instructions. That is a
+rule in the message, not a wall. The log text goes to the engine's vendor, as the code and the comments do.
 
 Nolzu runs on macOS. Linux, WSL 2 included, is not tested yet: the bubblewrap wall below is built
 and unit tested, but no real engine run has been checked inside it. Native Windows and WSL 1 are not

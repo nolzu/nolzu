@@ -401,6 +401,8 @@
   const unsent = $derived((data.comments ?? []).filter((one) => one.sentAt === null).length);
   const sendBack = $derived(shownCard === null || delivery === null ? null : sendBackOf(shownCard, delivery.stages, unsent));
   const sendBackRun = () => postWrite(fetch, resolve('/api/card/[key]/send-back', { key }), {});
+  // Fix CI under "Why it cannot merge": a run, held off the snapshot as Send back is.
+  const fixCiRun = () => postWrite(fetch, resolve('/api/card/[key]/fix-ci', { key }), {});
   // A refused press is the card's one toast in the app's one stack, as on the overview.
   function refused(said: string | null): void {
     const card = { key: page.params.key ?? '', href: resolve('/t/[key]', { key }) };
@@ -519,6 +521,7 @@
     planHref={filesAt('plan/plan.md')}
     planOpen={data.overview.planOpen}
     merge={data.merge}
+    fixCi={shownCard === null || delivery === null ? null : { card: shownCard, stages: delivery.stages, usage: { limits: nowLive.state.limits, now: Date.now() }, onfix: fixCiRun, onrefuse: refused }}
     closed={knowledge === null ? null : { knowledge, knowledgeHref: resolve('/knowledge'), onpulls: data.pulls ? readPulls : null, onrevert: revert, diffsWaiting: patches.current === null }}
     changesHref={data.hasChanges ? resolve('/t/[key]/[tab]', { key, tab: 'changes' }) : null}
     ticket={data.overview.ticket}

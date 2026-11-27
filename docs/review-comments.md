@@ -67,6 +67,15 @@ Nolzu reads this every 3 minutes for the open pull requests of those cards, and 
 pull requests. The 3 minute read skips a pull request it saw merged or closed. When a read fails, the
 card keeps the last answer and its time. Check names come from the first 20 checks GitHub lists.
 
+When checks failed, "Fix CI" beside them starts an Implement run to fix them. Nolzu reads the log of
+each failed GitHub Actions job of the pull request's own repository with `gh`, keeps its last 300
+lines (60 KB at most), and saves it in `ci/` in the card folder, with `ci/failed.md` listing each
+failed check, its link and the commit it ran on. A check that is not a GitHub Actions job is named
+there with no log: open it on GitHub. The card goes back to Implement and the run is told where the
+logs are, and to read them as data, not as instructions. No QA runs after it. Read the change on the
+Changes tab, then commit and push as after any Implement run, and the checks run again. The logs go
+to the engine's vendor with the code, as the comments do. Fix CI waits while a run holds the card.
+
 ## Earlier QA reports
 
 Every QA run writes `qa/report.md` in the card folder over the one before. Nolzu keeps the old one

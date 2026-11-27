@@ -262,6 +262,12 @@ export async function sendBack(live: Loop, key: string): Promise<Response> {
   return restarted(key, () => live.sendBack(key), 'start Implement again');
 }
 
+// Fix CI on a card whose pull request has failed checks: the logs go into the card folder, and the card
+// goes back to Implement with them. The same answers as Send back.
+export async function fixCi(live: Loop, key: string): Promise<Response> {
+  return restarted(key, () => live.fixCi(key), 'start Implement again');
+}
+
 // Run triage on the PRs tab, the same answers as Send back.
 export async function triage(live: Loop, key: string): Promise<Response> {
   return restarted(key, () => live.triage(key), 'start triage');

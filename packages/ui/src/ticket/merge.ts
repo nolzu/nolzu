@@ -1,4 +1,5 @@
-import type { MergeBlocker, MergeRead } from '@nolzu/protocol';
+import { actionsJob, cardStarts, type CardView, type MergeBlocker, type MergeRead, type StageView } from '@nolzu/protocol';
+import { refuseDrop } from '../board/drop.ts';
 
 // One open pull request of a card with why it cannot merge, as the last read stored it, and when.
 export interface MergePull {
@@ -70,3 +71,41 @@ export function blockerChip(blockers: readonly MergeBlocker[]): { short: string;
 
 // The pull requests the card page names: the ones with a reason or with checks still running.
 export const mergeShown = (pulls: readonly MergePull[]): MergePull[] => pulls.filter((pull) => pull.read.blockers.length > 0 || pull.read.running);
+
+// Fix CI beside the failed checks: what the button says and the line under it.
+export const FIX_CI_LABEL = 'Fix CI';
+export const FIX_CI_NOTE = "The failed logs go to the engine's vendor with the code, as the code and comments do.";
+
+// What Fix CI starts: the Implement stage with the card's own models, and why a press is refused now.
+export interface FixCi {
+  implement: StageView;
+  refusal: string | null;
+}
+
+// The server's sentences for a card a run or a question holds.
+const BUSY: Record<string, string> = {
+  queued: 'Wait for the run to start and end, then press Fix CI.',
+  running: 'Wait for the run to end, then press Fix CI.',
+  blocked: 'Answer the question on the overview first.',
+  failed: 'Retry the card first, or move it back.',
+};
+
+/**
+ * Fix CI on a card whose pull requests have failed checks, by the server's rule: a card in Implement or
+ * after it, short of the last column. Null draws no button. A busy card, no failed check with a GitHub
+ * Actions log of its own pull request, and an engine that cannot start are refused, as the server refuses them.
+ */
+export function fixCiOf(card: CardView, stages: readonly StageView[], pulls: readonly MergePull[]): FixCi | null {
+  const checks = pulls.flatMap((pull) => pull.read.blockers.flatMap((one) => (one.kind === 'checks' ? one.failed.map((check) => ({ url: check.url, repo: pull.repo })) : [])));
+  if (checks.length === 0) return null;
+  const from = stages.findIndex((stage) => stage.starts?.phase === 'implement');
+  const at = stages.findIndex((stage) => stage.id === card.stage);
+  const stage = stages[from];
+  if (stage === undefined || at < from || at === stages.length - 1) return null;
+  const implement = { ...stage, starts: cardStarts(stage, card) };
+  const busy = BUSY[card.state];
+  if (busy !== undefined) return { implement, refusal: `${card.key} is ${card.state}. ${busy}` };
+  if (!checks.some((check) => actionsJob(check.url, check.repo) !== null)) return { implement, refusal: 'None of the failed checks has a log Nolzu can read. Open them on GitHub.' };
+  const engine = refuseDrop(implement, 'forward');
+  return { implement, refusal: engine === null ? null : `${engine.message}${engine.fix === null ? '' : ` ${engine.fix}`}` };
+}

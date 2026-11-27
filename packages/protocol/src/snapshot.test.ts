@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { checkWords, matchPlan } from './snapshot.ts';
+import { actionsJob, checkWords, matchPlan } from './snapshot.ts';
 
 const task = (key: string, title: string) => ({ key, title });
 
@@ -46,4 +46,20 @@ it('says the output check problems in a few words, and in full', () => {
     short: '2 files, 2 problems',
     full: 'implement/progress.md: The heading "## Steps done" is missing. implement/summary.md: The file is missing.',
   });
+});
+
+// Fix CI reads a log only by the ids a GitHub Actions job link names, and never guesses one.
+it('reads the run and job ids of a GitHub Actions job link of the pull request\'s repository, and nothing from any other link', () => {
+  expect(actionsJob('https://github.com/example/recipes/actions/runs/123/job/456', 'example/recipes')).toEqual({ owner: 'example', repo: 'recipes', run: '123', job: '456' });
+  expect(actionsJob('https://github.com/example/recipes/actions/runs/123/job/456?pr=12#step:4:9', 'example/recipes')).toEqual({ owner: 'example', repo: 'recipes', run: '123', job: '456' });
+  expect(actionsJob('https://github.com/example/recipes/actions/runs/123', 'example/recipes')).toBeNull();
+  expect(actionsJob('https://github.com/example/recipes/runs/456', 'example/recipes')).toBeNull();
+  expect(actionsJob('https://ci.example.com/example/recipes/actions/runs/123/job/456', 'example/recipes')).toBeNull();
+  expect(actionsJob('http://github.com/example/recipes/actions/runs/123/job/456', 'example/recipes')).toBeNull();
+  expect(actionsJob('https://github.com/example/recipes/actions/runs/123/job/456/../../../../x', 'example/recipes')).toBeNull();
+  expect(actionsJob('https://github.com/../recipes/actions/runs/123/job/456', 'example/recipes')).toBeNull();
+  expect(actionsJob('https://github.com/example/recipes/actions/runs/12a/job/456', 'example/recipes')).toBeNull();
+  expect(actionsJob(null, 'example/recipes')).toBeNull();
+  expect(actionsJob('https://github.com/Example/Recipes/actions/runs/1/job/2', 'example/recipes')).toEqual({ owner: 'Example', repo: 'Recipes', run: '1', job: '2' });
+  expect(actionsJob('https://github.com/someone/else/actions/runs/1/job/2', 'example/recipes')).toBeNull();
 });

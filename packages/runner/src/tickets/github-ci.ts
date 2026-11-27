@@ -1,4 +1,5 @@
 import type { FailedRun } from '@nolzu/protocol';
+import { ghRunner, type GhOptions } from './gh.ts';
 import type { RunGh } from './github.ts';
 
 /**
@@ -82,4 +83,75 @@ export async function failedRuns(run: RunGh, owner: string, repo: string, limit:
     signal,
   );
   return readRuns(slug, branch, answer.stdout);
+}
+
+// How much of a job's log Fix CI keeps. The error is near the end of a failed job, and the run reads
+// the file, so the end is what it needs and the rest only costs tokens.
+export const LOG_LINES = 300;
+export const LOG_BYTES = 60_000;
+
+/**
+ * The end of a log: the last `lines` lines that fit in `bytes`, whether anything was cut, and how many
+ * lines the whole log had. A last line longer than `bytes` alone keeps its end.
+ */
+export function trimLog(text: string, lines = LOG_LINES, bytes = LOG_BYTES): { text: string; cut: boolean; total: number } {
+  const all = text.replace(/\r?\n$/, '').split(/\r?\n/);
+  let from = all.length;
+  let used = 0;
+  while (from > 0 && all.length - from < lines) {
+    const size = Buffer.byteLength(all[from - 1] ?? '', 'utf8') + 1;
+    if (used + size > bytes) break;
+    used += size;
+    from -= 1;
+  }
+  // A character is at most four bytes, so this end fits whatever the text.
+  if (from === all.length) return { text: (all.at(-1) ?? '').slice(-Math.floor(bytes / 4)), cut: true, total: all.length };
+  return { text: all.slice(from).join('\n'), cut: from > 0, total: all.length };
+}
+
+// Limit: a job log over 32 MB is not read at all, because gh hands the whole answer over at once and
+// only its end is kept. The check is then named with no log, and Fix CI goes on with the others.
+export const LOG_MAX_STDOUT = 32_000_000;
+export const LOG_TOO_LARGE = 'The log is larger than Nolzu reads. Open it on GitHub.';
+
+/** The real `gh` for a job log: a cap of its own, and a sentence about the log, not about an issue. */
+export const ghLogRunner = (options: GhOptions = {}): RunGh => ghRunner({ maxStdout: LOG_MAX_STDOUT, ...options, cut: LOG_TOO_LARGE });
+
+const firstLine = (text: string): string => text.trim().split('\n')[0]?.trim() ?? '';
+
+// Why gh gave no log, in its own words, or a throw for what stops every read: a rate limit.
+function failedRead(slug: string, answer: { stdout: string; stderr: string }): string {
+  const said = `${answer.stderr}\n${answer.stdout}`;
+  if (/rate limit/i.test(said)) throw new Error(`GitHub's rate limit for this gh login is used up, so the logs of ${slug} were not read. Wait for it to reset, at most an hour, then press Fix CI again.`);
+  return firstLine(answer.stderr) || firstLine(answer.stdout) || 'gh gave no reason';
+}
+
+/**
+ * One GitHub Actions job's log and the commit it ran on, through `gh api`, read-only (`-X GET`). Two
+ * calls: the job, for its head commit, then its log, which GitHub answers as plain text. A job whose
+ * log GitHub does not hand over, such as one past the retention days, answers why in gh's words. A rate
+ * limit, a missing gh and a lost login throw, because they stop every other read too.
+ */
+export async function readJobLog(run: RunGh, job: { owner: string; repo: string; job: string }, signal: AbortSignal): Promise<{ ok: true; log: string; head: string | null } | { ok: false; why: string }> {
+  if (!NAME.test(job.owner) || !NAME.test(job.repo) || !/^\d+$/.test(job.job)) return { ok: false, why: 'The link names no job Nolzu can read.' };
+  const slug = `${job.owner}/${job.repo}`;
+  const about = await run(['api', '-X', 'GET', `repos/${slug}/actions/jobs/${job.job}`], signal);
+  if (about.code !== 0) return { ok: false, why: `GitHub did not hand over its log (${failedRead(slug, about)}).` };
+  let head: string | null;
+  try {
+    const sha = (JSON.parse(about.stdout) as { head_sha?: unknown }).head_sha;
+    head = typeof sha === 'string' && /^[0-9a-f]{7,64}$/.test(sha) ? sha : null;
+  } catch {
+    head = null;
+  }
+  let log: { code: number; stdout: string; stderr: string };
+  try {
+    log = await run(['api', '-X', 'GET', `repos/${slug}/actions/jobs/${job.job}/logs`], signal);
+  } catch (error) {
+    // The log runner's own cut sentence: this one log is too large, and the other checks still read.
+    if ((error as Error).message.endsWith(LOG_TOO_LARGE)) return { ok: false, why: 'The log is larger than Nolzu reads.' };
+    throw error;
+  }
+  if (log.code !== 0) return { ok: false, why: `GitHub did not hand over its log (${failedRead(slug, log)}).` };
+  return { ok: true, log: log.stdout, head };
 }

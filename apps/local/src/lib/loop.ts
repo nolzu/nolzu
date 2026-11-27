@@ -4,7 +4,7 @@ import { dirname, join, relative } from 'node:path';
 import { boardFor, chainTo, checkedPaths, type QaApp, outputCheck, EXTRACT_SUMMARY_POLICY, foldRun, isAction, isAskThread, isDeliveryPhase, isFeedbackRef, type ModelAction, modelsForPick, type ModelsByVendor, NO_REPOSITORY, policyFor, presetModels, READ_GIT_COMMANDS, projectRepos, repoKnowledgePath, repositoriesLine, resolveKnowledgeDir, resolveModels, type ResolvedTable, type Scheduler, smallChain, startsInCardFolder, startsLabel, vendorRefusal, type WallState } from '@nolzu/core';
 import { assessScoutFinding, beginFix, beginFixAll, fixedSinceQa, lastJudgedQa, reopenFixed, writeSetting, boardOfCard, boardSnapshot, bumpVersion, cardBase, cardDiscussions, cardPullRows, endFix, cardModels, cardPreset, epicOfTask, FIRST_PROJECT, getSetting, markRunning, NOT_A_PASS, openDatabase, cardHolds, saveOutputCheck, openProject, pendingKnowledgeChanges, projectFiles, projectOutsideGit, projectProfiles, type PullHead, registeredProjects, recordKnowledgeChanges, recoverRuns, recordMove, reposOfCard, resolveDataDir, savePullRound, seenHead, sessionFolder, sessionInCardFolder, setCardTitle, returnedKnowledgeNote, saveQuestionOptions, saveReadOnlyBreak, clearReadOnlyBreaks, otherRunOfCard, saveCommitWarning, saveRun, saveStackStatus, saveVerdict, scoutFinding, setCardRepos, setCardStack, startRun, startWriting } from '@nolzu/core/node';
 import { ASK_PHASE, assessKey, CLOUD_OPEN, cardStarts, DEFAULT_PROFILE, findingOfKey, isBoardKind, isFakeMode, isMaintenanceKey, isPass, isResearchKind, KB_MAINTENANCE_KEY, learnRepoKey, missingProfileText, parseQuestionOptions, phaseLabel, QUESTION_FILE, refinedTitle, repoOfLearnKey, type Board, type BoardKind, type BoardSnapshot, type CardSize, type DeliveryPhase, type EngineName, type Job, type ReadOnlyBreak, type RunActivity, type RunEvent, type RunnerMessageType, type StackState, type WallKind } from '@nolzu/protocol';
-import { activityLine, type AppServer, makeCardFolder, readCardText, removeCardFile, stripSharedAttribution, writeCardFile, askPrompt, type AwakeDeps, browserLine, buildPrompt, cardFileKind, checkKnowledgeDir, checkoutPath, checkoutRoot, commitAt, commitKnowledge, ENGINES, ensureWorktree, epicDocPaths, FROM_EPIC_FILE, extractVerdict, makeQaCopy, qaCopyPath, qaCopyRoot, removeQaCopy, sweepQaCopies, sweepRemovals, worktreesFolder, ghRunner, git, gitAfter, gitBefore, gitEnv, recordedRepos, type GitSnapshot, GUARD_PATH, guardSettings, type HeldKnowledge, holdAwake, holdKnowledge, isPlainName, knowledgeChanges, knowledgeDiffs, knowledgeGit, knowledgeState, noteInRunLog, ownSandbox, personsSkillEdit, phaseInstructionsFile, processStart, pickKnowledge, PROGRESS_FILE, readFirstPaths, readPhaseInstructions, renameFreshBranch, repoFolder, resolvedPath, mcpRunsFolder, restoreCursorMcp, resumeJob, resumeMessage, type RunGh, type RunGit, runJob, runStackHook, runWithRetries, selectEngine, serversLine, stackCommand, stackNotes, swapPromptLine, sweptAfter, type StackHook, STACK_TIMEOUT_MS, STACK_UNLOAD_TIMEOUT_MS, stackStatusAfter, installApp, installCommand, startApp, stepsDone, systemAwake, appWall, wallHere, wallKind, type Engine, type Keychain } from '@nolzu/runner';
+import { activityLine, type AppServer, makeCardFolder, readCardText, removeCardFile, stripSharedAttribution, writeCardFile, askPrompt, type AwakeDeps, browserLine, buildPrompt, cardFileKind, checkKnowledgeDir, checkoutPath, checkoutRoot, commitAt, commitKnowledge, ENGINES, ensureWorktree, epicDocPaths, FROM_EPIC_FILE, extractVerdict, makeQaCopy, qaCopyPath, qaCopyRoot, removeQaCopy, sweepQaCopies, sweepRemovals, worktreesFolder, ghRunner, git, gitAfter, gitBefore, gitEnv, recordedRepos, type GitSnapshot, GUARD_PATH, guardSettings, type HeldKnowledge, holdAwake, holdKnowledge, isPlainName, knowledgeChanges, knowledgeDiffs, knowledgeGit, knowledgeState, noteInRunLog, ownSandbox, personsSkillEdit, phaseInstructionsFile, processStart, pickKnowledge, PROGRESS_FILE, readFirstPaths, readPhaseInstructions, renameFreshBranch, repoFolder, resolvedPath, mcpRunsFolder, restoreCursorMcp, resumeJob, resumeMessage, ghLogRunner, type RunGh, type RunGit, runJob, runStackHook, runWithRetries, selectEngine, serversLine, stackCommand, stackNotes, swapPromptLine, sweptAfter, type StackHook, STACK_TIMEOUT_MS, STACK_UNLOAD_TIMEOUT_MS, stackStatusAfter, installApp, installCommand, startApp, stepsDone, systemAwake, appWall, wallHere, wallKind, type Engine, type Keychain } from '@nolzu/runner';
 import { phaseInstructions, threadTitlePrompt } from '@nolzu/skills';
 import { error } from '@sveltejs/kit';
 // The drop's own writer, so a chained start takes the path and the refusals a drop takes.
@@ -16,7 +16,7 @@ import { addMessage, answerOf, cleanSubject, messagesIn, recordPhaseSummary, sav
 import { saveLimit } from './engine-limits.ts';
 import { applyTriageFile, fixAllMessage, FIXES_FILE, fixFeedbackMessage, isOpen, readFixNotes, writeFeedbackFile } from './feedback.ts';
 import { type Checkout, type Heads, readHeads, runMoved } from './fix-check.ts';
-import { fixMessage } from './fix-it.ts';
+import { fixMessage, saveCiLogs } from './fix-it.ts';
 import { failedFixes, keepReport, qaFixesMessage } from './qa-fixes.ts';
 import { sendToTeamHub } from './hub-link.ts';
 import { learnAsking } from './knowledge-learn.ts';
@@ -122,6 +122,11 @@ export interface Loop {
   // On a start the comments get their sent time; a refusal or a failed start leaves them open. Throws,
   // and writes nothing, with no open comment or a card that cannot go back. False as for answer.
   sendBack: (key: string) => Promise<boolean>;
+  // Fix CI on a Delivery card whose pull request has failed checks: reads each failed GitHub Actions
+  // job's log with gh into `ci/` in the card folder, then goes back to Implement by Send back's path
+  // with a message that points at them, with no QA after. Throws, and starts nothing, for a card Send
+  // back would refuse, no failed check, no readable log, or a gh that cannot read. False as for answer.
+  fixCi: (key: string) => Promise<boolean>;
   // Run triage on a Delivery card's PRs tab: a read-only run of the feedback phase on the card where
   // it sits, over every open discussion of its pull requests. The comments go into the card folder
   // before the engine starts, and the verdicts are applied to the rows when it ends ready. Throws, and
@@ -281,6 +286,8 @@ const schedulers = new Map<string, SharedScheduler>();
 // Limit: one gh document per twenty asks of each kind per interval; slow it down if a project holds many.
 const PULL_WATCH_MS = 3 * 60_000;
 const PULL_ASK_MS = 30_000;
+// How long Fix CI waits for every failed job's log together. A log is a download, so it gets longer.
+const CI_READ_MS = 90_000;
 // The registry id of each data folder's first project, so it keeps one cache key whether a caller
 // names it by id or not. Two keys would mean two loops over one database.
 const firstIds = new Map<string, number>();
@@ -1843,28 +1850,53 @@ export function createLoop(dataFolder: string, env: NodeJS.ProcessEnv = process.
     return true;
   };
 
-  const sendBack = async (key: string): Promise<boolean> => {
-    const card = db.prepare('SELECT stage, state FROM cards WHERE key = ?').get(key) as { stage: string; state: string } | undefined;
-    if (card === undefined) throw new Error(`There is no card ${key}, so there is nothing to send back.`);
-    const open = commentsOf(db, key).filter((one) => one.sentAt === null);
-    if (open.length === 0) throw new Error(`${key} has no open comments to send back. Comment on a line on the Changes tab first.`);
-    // Only a card nothing is happening to, as a discussion message. `restart` writes queued whatever
-    // the card was, so a question nobody answered or a failure's reason would go with it.
+  // What Send back and Fix CI refuse before anything is written, and the Implement column they go back
+  // to. Only a card nothing is happening to, as a discussion message: `restart` writes queued whatever
+  // the card was, so a question nobody answered or a failure's reason would go with it. And only a card
+  // in Implement or after it, short of the last column.
+  const goesBack = (key: string, card: { stage: string; state: string }, what: string, then: string, to: string): { id: string } => {
     if (card.state !== 'ready' && card.state !== 'idle') {
       const why: Record<string, string> = {
-        queued: 'Wait for the run to start and end, then send the comments back.',
-        running: 'Wait for the run to end, then send the comments back.',
+        queued: `Wait for the run to start and end, then ${then}.`,
+        running: `Wait for the run to end, then ${then}.`,
         blocked: 'Answer the question on the overview first.',
         failed: 'Retry the card first, or move it back.',
       };
       throw new Error(`${key} is ${card.state}. ${why[card.state] ?? 'Wait until the card is ready.'}`);
     }
-    const implement = implementOf(key, 'Send back');
+    const implement = implementOf(key, what);
     const stages = boardOf(key).stages;
     const at = stages.findIndex((stage) => stage.id === card.stage);
     if (at < stages.findIndex((stage) => stage.id === implement.id) || at === stages.length - 1) {
-      throw new Error(`${key} sits in ${card.stage}, so there is no Implement run to send comments back to.`);
+      throw new Error(`${key} sits in ${card.stage}, so there is no Implement run to ${to}.`);
     }
+    return implement;
+  };
+
+  // Fix CI: the failed checks' logs go into the card folder, then the card goes back to Implement by
+  // Send back's path with a message that points at them. No QA after it: the person reads the change,
+  // commits and pushes, and the checks run again.
+  const fixCi = async (key: string): Promise<boolean> => {
+    const card = db.prepare('SELECT board, stage, state FROM cards WHERE key = ?').get(key) as { board: string; stage: string; state: string } | undefined;
+    if (card === undefined) throw new Error(`There is no card ${key}, so there are no checks to fix.`);
+    if (card.board !== 'delivery') throw new Error(`${key} is not on Delivery. Only a Delivery card has its own pull request checks to fix.`);
+    goesBack(key, card, 'Fix CI', 'press Fix CI', 'fix the checks in');
+    // The stub in a test and the real gh in a real run. A fake run calls no gh, so it has no log to read.
+    const gh = options.gh ?? (isFakeMode(env) ? null : ghLogRunner());
+    if (gh === null) throw new Error('Fix CI reads the logs through gh, and the fake engine calls no gh.');
+    const message = await saveCiLogs({ key, taskDir: join(getSetting(db, 'projectPath') ?? dataDir, '.tasks', key), pulls: cardPullRows(db, key), gh, signal: AbortSignal.timeout(CI_READ_MS) });
+    // The read takes a while, and another press may have started a run on the card meanwhile.
+    const now = db.prepare('SELECT stage, state FROM cards WHERE key = ?').get(key) as { stage: string; state: string } | undefined;
+    if (now === undefined) throw new Error(`There is no card ${key}, so there are no checks to fix.`);
+    return (await backToImplement(key, now.stage, goesBack(key, now, 'Fix CI', 'press Fix CI', 'fix the checks in'), message)) !== null;
+  };
+
+  const sendBack = async (key: string): Promise<boolean> => {
+    const card = db.prepare('SELECT stage, state FROM cards WHERE key = ?').get(key) as { stage: string; state: string } | undefined;
+    if (card === undefined) throw new Error(`There is no card ${key}, so there is nothing to send back.`);
+    const open = commentsOf(db, key).filter((one) => one.sentAt === null);
+    if (open.length === 0) throw new Error(`${key} has no open comments to send back. Comment on a line on the Changes tab first.`);
+    const implement = goesBack(key, card, 'Send back', 'send the comments back', 'send comments back to');
 
     // Read before the move, from the card's checkouts as they stand.
     const project = getSetting(db, 'projectPath');
@@ -2882,6 +2914,7 @@ export function createLoop(dataFolder: string, env: NodeJS.ProcessEnv = process.
     retry,
     fix,
     sendBack,
+    fixCi,
     triage,
     fixFeedback,
     fixAll,

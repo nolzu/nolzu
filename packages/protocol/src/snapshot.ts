@@ -90,6 +90,31 @@ export interface MergeRead {
   running: boolean;
 }
 
+// A GitHub Actions job, as the link of its check run names it. The ids stay text, because nothing
+// counts with them and a long one must not lose digits.
+export interface ActionsJob {
+  owner: string;
+  repo: string;
+  run: string;
+  job: string;
+}
+
+const JOB_LINK = /^https:\/\/github\.com\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)\/actions\/runs\/(\d{1,20})\/job\/(\d{1,20})(?:[?#].*)?$/;
+
+/**
+ * The GitHub Actions job a failed check of the pull request in `repo` (owner/name) links to, or null for
+ * any other link: a commit status, another app's check, a link with no job in it, or a job of another
+ * repository. Nolzu reads a log only by these ids and never guesses one.
+ */
+export function actionsJob(url: string | null, repo: string): ActionsJob | null {
+  const found = url === null ? null : JOB_LINK.exec(url);
+  if (found === null) return null;
+  const [, owner = '', name = '', run = '', job = ''] = found;
+  // Only the pull request's own repository, a name GitHub gave, so no link can aim the read elsewhere.
+  if (`${owner}/${name}`.toLowerCase() !== repo.toLowerCase()) return null;
+  return { owner, repo: name, run, job };
+}
+
 // The card as the board draws it. There is no elapsed number and no ticking cost here: the
 // run start travels instead and the browser counts, so a running agent does not produce a
 // snapshot every second.
