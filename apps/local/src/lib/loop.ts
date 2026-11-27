@@ -32,7 +32,7 @@ import { releaseAll, releaseHeld } from './stack-action.ts';
 import { answerFor, type OwnApp, ownFolder, ownStarts, PLAYWRIGHT_FILE, qaReposOf, scriptsChanged } from './qa-setup.ts';
 import { roundsIn } from './review.ts';
 import { cardHistory, personsWords } from './persons-words.ts';
-import { linkOpenPulls, unlinkedCards } from './pull-list.ts';
+import { linkOpenPulls, rereadOpenPulls, unlinkedCards } from './pull-list.ts';
 import { lineNow, sendBackMessage } from './send-back.ts';
 import { followLearn, withAfterLearn } from './setup.ts';
 import { type SharedScheduler, sharedScheduler } from './shared-scheduler.ts';
@@ -276,8 +276,9 @@ const open = new Map<string, Loop>();
 // shared-scheduler.ts, it would outlive the loops, and every rebuilt loop would be refused its place.
 const schedulers = new Map<string, SharedScheduler>();
 
-// How often the cards with no pull request linked are asked for one, and how long one ask may take.
-// Limit: one gh document per interval for every such card; slow it down if a project holds many.
+// How often the cards with no pull request linked are asked for one, and the linked open ones read
+// again, and how long one ask may take.
+// Limit: one gh document per twenty asks of each kind per interval; slow it down if a project holds many.
 const PULL_WATCH_MS = 3 * 60_000;
 const PULL_ASK_MS = 30_000;
 // The registry id of each data folder's first project, so it keeps one cache key whether a caller
@@ -537,21 +538,26 @@ export function createLoop(dataFolder: string, env: NodeJS.ProcessEnv = process.
   };
 
   // A Delivery card's pull request, found without a press. Once per card per interval, never in fake
-  // mode, where nothing may call the real gh, and never once the loop is closed.
+  // mode, where nothing may call the real gh, and never once the loop is closed. The interval also reads
+  // the linked open pull requests again, so why each cannot merge stays fresh; a failed read keeps the
+  // last answer.
   const pullAsked = new Map<string, number>();
+  let rereadAt = 0;
   const watchPulls = (key?: string): void => {
     const gh = options.gh ?? (isFakeMode(env) ? null : ghRunner());
     if (closed || gh === null) return;
     const now = Date.now();
+    const told = (cards: string[]) => {
+      if (cards.length > 0 && !closed) changed();
+    };
+    if (key === undefined && now - rereadAt >= PULL_WATCH_MS) {
+      rereadAt = now;
+      void rereadOpenPulls(db, gh, AbortSignal.timeout(PULL_ASK_MS)).then(told, () => undefined);
+    }
     const keys = key !== undefined ? [key] : unlinkedCards(db).filter((one) => now - (pullAsked.get(one) ?? 0) >= PULL_WATCH_MS);
     if (keys.length === 0) return;
     for (const one of keys) pullAsked.set(one, now);
-    void linkOpenPulls(db, keys, gh, AbortSignal.timeout(PULL_ASK_MS)).then(
-      (linked) => {
-        if (linked.length > 0 && !closed) changed();
-      },
-      () => undefined,
-    );
+    void linkOpenPulls(db, keys, gh, AbortSignal.timeout(PULL_ASK_MS)).then(told, () => undefined);
   };
   const pullTimer = setInterval(() => watchPulls(), PULL_WATCH_MS);
   pullTimer.unref();

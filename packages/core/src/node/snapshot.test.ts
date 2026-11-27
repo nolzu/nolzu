@@ -759,6 +759,19 @@ it('carries the output check problems of the newest run, and leaves them out at 
   expect(cardIn(shot(), 'APP-2')).not.toHaveProperty('outputProblems');
 });
 
+// The merge chip on a Delivery card: from Review to Wrap-up only, where the timer keeps the read fresh.
+it('carries why the pull request cannot merge on a card from Review to Wrap-up, and nothing elsewhere', () => {
+  addCard('APP-1', 'pr-watch', 'idle');
+  addCard('APP-2', 'implement', 'idle');
+  const merge = { blockers: [{ kind: 'approval' as const }], running: false };
+  saveCardPull(db, 'APP-1', { repo: 'cook/recipes', number: 12, url: null, foundBy: 'branch', state: 'open', merge });
+  saveCardPull(db, 'APP-2', { repo: 'cook/recipes', number: 13, url: null, foundBy: 'branch', state: 'open', merge });
+
+  const snap = shot();
+  expect(cardIn(snap, 'APP-1')?.blockers).toEqual([{ kind: 'approval' }]);
+  expect(cardIn(snap, 'APP-2')).not.toHaveProperty('blockers');
+});
+
 // The review comments line on a Delivery card: counts from the database, never a word of a comment.
 it('carries the review comment counts of a Delivery card, and none on a closed one', () => {
   addCard('APP-1', 'pr-watch', 'idle');

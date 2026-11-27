@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isPlainName } from '../git/worktree.ts';
-import { BATCH, branchPullsQuery, discussionsQuery, findBranchPulls, getPull, githubIssues, issueKey, issueQuery, listOpenPulls, openPullsQuery, pullKey, pullQuery, readBranchPulls, readIssues, readOpenPulls, readPullDiscussions, readPulls, stateOf, threadCommentsQuery, type RunGh } from './github.ts';
+import { BATCH, branchPullsQuery, mergeQuery, readMergeStates, discussionsQuery, findBranchPulls, getPull, githubIssues, issueKey, issueQuery, listOpenPulls, openPullsQuery, pullKey, pullQuery, readBranchPulls, readIssues, readOpenPulls, readPullDiscussions, readPulls, stateOf, threadCommentsQuery, type RunGh } from './github.ts';
 
 // Built from what the real API answered on 2026-09-24, not from documentation: a missing
 // repository leaves its alias null, a missing issue leaves `issueOrPullRequest` null, both show up
@@ -710,6 +710,16 @@ describe('branchPullsQuery', () => {
     }
   });
 
+  // Why an open pull request cannot merge, in the same document, so the timer and the press need no
+  // second call.
+  it('asks why it cannot merge: the merge state and the checks with their links', () => {
+    const query = branchPullsQuery([ask()]);
+
+    for (const field of ['mergeable', 'mergeStateStatus', 'statusCheckRollup { state contexts(first: 20)', '... on CheckRun { name conclusion status detailsUrl }', '... on StatusContext { context state targetUrl }']) {
+      expect(query, field).toContain(field);
+    }
+  });
+
   it('keeps a branch with a slash and a quote inside one string', () => {
     expect(branchPullsQuery([ask('app', 'cook/APP-1 "x") { y }')])).toContain('headRefName: "cook/APP-1 \\"x\\") { y }"');
   });
@@ -777,6 +787,15 @@ describe('readBranchPulls', () => {
     expect(zero?.pull).toMatchObject({ additions: 0, deletions: 0, changedFiles: 0 });
     const [odd] = readBranchPulls([ask()], branchList([pull(7, { isCrossRepository: false, mergedAt: '', baseRefName: '', additions: -1 })]));
     for (const key of ['mergedAt', 'baseRef', 'additions']) expect(odd?.pull ?? {}, key).not.toHaveProperty(key);
+  });
+
+  it('reads why it cannot merge when the answer carries the merge fields, and claims nothing when it does not', () => {
+    const blocked = pull(7, { isCrossRepository: false, reviewDecision: 'REVIEW_REQUIRED', baseRefName: 'main', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY', statusCheckRollup: { state: 'SUCCESS', contexts: { nodes: [] } } });
+    const [found] = readBranchPulls([ask()], branchList([blocked]));
+    expect(found?.pull?.merge).toEqual({ blockers: [{ kind: 'conflict', base: 'main' }, { kind: 'approval' }], running: false });
+
+    const [plain] = readBranchPulls([ask()], branchList([pull(7, { isCrossRepository: false })]));
+    expect(plain?.pull ?? {}).not.toHaveProperty('merge');
   });
 
   it('reads a branch with no pull request as found nothing', () => {
@@ -917,5 +936,27 @@ describe('the discussions of a pull request', () => {
     const nobody = answered({ viewer: null, repository: { pullRequest: { reviewThreads: empty, reviews: empty, comments: empty } } });
     await expect(readPullDiscussions(answering(nobody), PULL, AbortSignal.timeout(1000))).rejects.toThrow(/could not read/);
     await expect(readPullDiscussions(answering(answered({ viewer: { login: 'pat' }, repository: { pullRequest: { reviewThreads: empty, reviews: empty, comments: empty } } })), PULL, AbortSignal.timeout(1000))).resolves.toMatchObject({ viewer: 'pat' });
+  });
+});
+
+// The timer reads linked pull requests again by number, twenty to a document, with the branch lookup's
+// fields.
+describe('readMergeStates', () => {
+  it('asks for the merge fields by number, one call per twenty', async () => {
+    expect(mergeQuery([ref(7)])).toContain('issueOrPullRequest(number: 7)');
+    for (const field of ['mergeStateStatus', 'statusCheckRollup', 'reviewDecision', 'isDraft', 'baseRefName']) expect(mergeQuery([ref(7)]), field).toContain(field);
+
+    const calls: string[] = [];
+    const run: RunGh = async (args) => {
+      const query = args[3] ?? '';
+      calls.push(query);
+      const numbers = [...query.matchAll(/issueOrPullRequest\(number: (\d+)\)/g)].map((one) => Number(one[1]));
+      return { code: 0, stdout: answered(Object.fromEntries(numbers.map((number, at) => [`t${at}`, { issueOrPullRequest: pull(number, { mergeStateStatus: 'BEHIND', baseRefName: 'main' }) }]))), stderr: '' };
+    };
+    const found = await readMergeStates(run, Array.from({ length: BATCH + 1 }, (_, at) => ref(at + 1)), AbortSignal.timeout(1000));
+
+    expect(calls).toHaveLength(2);
+    expect(found).toHaveLength(BATCH + 1);
+    expect(found[BATCH]?.pull?.merge).toEqual({ blockers: [{ kind: 'behind', base: 'main' }], running: false });
   });
 });

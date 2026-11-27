@@ -52,6 +52,21 @@ triage wants fixed that are not fixed yet. New counts the rows with a message yo
 and opening the PRs tab clears it. A part at nought is left out, and a card with neither shows no
 line. The board counts from what this machine stored and does not ask GitHub.
 
+## Why it cannot merge
+
+From Review to Wrap-up, a Delivery card says why its open pull request cannot merge yet. The board
+card shows the first reason and how many more, such as "Checks failed +1". The card's Overview lists
+every reason with its links under "Why it cannot merge", and says when GitHub was last read. The
+reasons, in this order: checks that failed (each linked to its log), a conflict with the base branch,
+a branch behind its base, a missing approval, asked changes, a draft, and a merge state GitHub has not
+worked out yet. Checks that are still running are shown, but they are not a reason. When GitHub blocks
+the merge and names none of these, such as with a ruleset, the card says so and links the pull
+request. Nolzu does not guess.
+
+Nolzu reads this every 3 minutes for the open pull requests of those cards, and when you press Read
+pull requests. The 3 minute read skips a pull request it saw merged or closed. When a read fails, the
+card keeps the last answer and its time. Check names come from the first 20 checks GitHub lists.
+
 ## Earlier QA reports
 
 Every QA run writes `qa/report.md` in the card folder over the one before. Nolzu keeps the old one
@@ -63,4 +78,4 @@ and for QA after Fix it alike.
 The comment text lives in the local database. A triage reads it from a file Nolzu writes into the
 card folder before the run starts, so the run needs no GitHub access. The board gets the counts
 only, and the hosted server gets neither the counts nor the text. A merged pull request does not
-move the card: drag it to Wrap-up yourself. Failed checks on the pull request are not read.
+move the card: drag it to Wrap-up yourself.

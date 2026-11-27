@@ -598,3 +598,43 @@ it('folds the related cards with their keys and titles as the preview', () => {
   expect(text(body)).toContain('Related 2 cards APP-4 Sort recipes, APP-7 Search by ingredient');
   expect(expanded(body, 'related')).toBe('false');
 });
+
+// Why the open pull requests cannot merge: each reason on its own line with its links, and when it was
+// read. A card with several pull requests names each repository.
+it('lists why the pull request cannot merge with its links and when it was read', () => {
+  const read = { blockers: [{ kind: 'checks' as const, failed: [{ name: 'build', url: 'https://ci.example.com/build' }] }, { kind: 'behind' as const, base: 'main' }], running: true };
+  const body = draw({ now: '2026-11-01T10:02:00Z', merge: [{ repo: 'cook/recipes', number: 12, url: 'https://github.com/cook/recipes/pull/12', read, at: '2026-11-01T10:00:00Z' }] });
+
+  expect(body).toContain('Why it cannot merge');
+  expect(body).toMatch(/<li data-blocker="checks">[^<]*1 check failed:[\s\S]*?<a class="link[^"]*" href="https:\/\/ci\.example\.com\/build"/);
+  // The space before a link is the page's own, not one a tag stands for.
+  expect(body.replace(/<!--[^>]*-->/g, '').replace(/<[^>]*>/g, '')).toContain('1 check failed: build');
+  expect(text(body)).toContain('main moved on, and this repository wants the branch up to date first');
+  expect(text(body)).toContain('Checks are still running');
+  expect(text(body)).toMatch(/read 2 minutes ago/);
+  // One pull request is not named: the block is about it.
+  expect(text(body)).not.toContain('cook/recipes#12');
+});
+
+it('names each repository of a card with several pull requests', () => {
+  const at = '2026-11-01T10:00:00Z';
+  const body = draw({
+    merge: [
+      { repo: 'cook/recipes', number: 12, url: null, read: { blockers: [{ kind: 'draft' }], running: false }, at },
+      { repo: 'cook/api', number: 3, url: null, read: { blockers: [{ kind: 'blocked', url: 'https://github.com/cook/api/pull/3' }], running: false }, at },
+      { repo: 'cook/web', number: 4, url: null, read: { blockers: [], running: false }, at },
+    ],
+  });
+
+  expect(body).toContain('href="https://github.com/cook/recipes/pull/12"');
+  expect(text(body)).toContain('cook/recipes#12');
+  expect(text(body)).toContain('cook/api#3');
+  expect(text(body)).toContain('GitHub blocks the merge for a reason it does not name here Open the pull request');
+  // Nothing blocks the third, so it is not named.
+  expect(text(body)).not.toContain('cook/web#4');
+});
+
+it('draws no merge block when nothing blocks', () => {
+  expect(draw({ merge: [{ repo: 'cook/recipes', number: 12, url: null, read: { blockers: [], running: false }, at: '2026-11-01T10:00:00Z' }] })).not.toContain('Why it cannot merge');
+  expect(draw()).not.toContain('Why it cannot merge');
+});

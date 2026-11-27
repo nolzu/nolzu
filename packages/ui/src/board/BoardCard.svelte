@@ -4,6 +4,7 @@
   // The same three words the Review tab shows, from one place, so the card and the tab cannot drift.
   import { DECISION_WORD } from '../ticket/review.ts';
   import { feedbackLine } from '../ticket/prs.ts';
+  import { blockerChip } from '../ticket/merge.ts';
   import Button from '../Button.svelte';
   import StatePill from '../StatePill.svelte';
   import { answerHref } from './answer.ts';
@@ -137,6 +138,7 @@
   const needs = $derived(open.filter(waitingOnMe).length);
   // Counts only, from the snapshot. The comments themselves stay on the card page.
   const feedback = $derived(feedbackLine(card.feedback));
+  const merge = $derived(blockerChip(card.blockers ?? []));
 
   // What the card says about the head commit. Null draws nothing: with no clock there is nothing
   // to count from, and such a card draws no other time either.
@@ -372,6 +374,16 @@
         <p class="verdict" data-output-check>
           <a href="/t/{encodeURIComponent(card.key)}/overview#output-check" title={words.full} tabindex="-1" draggable="false"
             ><span class="word">Check</span> <span class="why" aria-hidden="true">{words.short}</span><span class="hidden">{words.full}</span></a
+          >
+        </p>
+      {/if}
+      <!-- Why the pull request cannot merge: the first reason in words and how many more, every reason on
+           hover and to a screen reader. It opens the list on the card page, out of the tab order like
+           the check chip. -->
+      {#if merge !== null}
+        <p class="verdict" data-merge={card.key}>
+          <a href="/t/{encodeURIComponent(card.key)}/overview#merge" title={merge.full} tabindex="-1" draggable="false"
+            ><span class="word" aria-hidden="true">{merge.short}</span><span class="hidden">{merge.full}</span></a
           >
         </p>
       {/if}

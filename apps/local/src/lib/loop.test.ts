@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { presetModels, READ_GIT_COMMANDS } from '@nolzu/core';
-import { cardDiscussions, followPreset, getSetting, markDiscussion, notifications, saveCardPull, storeDiscussions, openDatabase, outputCheckOf, readOnlyBreakOf, readRun, retryWait, setCardModels, startRun, writeSetting } from '@nolzu/core/node';
+import { cardDiscussions, cardPullRows, followPreset, getSetting, markDiscussion, notifications, saveCardPull, storeDiscussions, openDatabase, outputCheckOf, readOnlyBreakOf, readRun, retryWait, setCardModels, startRun, writeSetting } from '@nolzu/core/node';
 import { DEFAULT_PROFILE, type Job, type RunActivity } from '@nolzu/protocol';
 import { type Engine, gitAfter, gitBefore, recordedRepos, type RunGh, spawnClaude } from '@nolzu/runner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -3321,13 +3321,23 @@ describe('the pull request found by itself', () => {
   let folder = '';
   let live: Loop;
   let asked = 0;
-  const gh: RunGh = async () => {
+  let queries: string[] = [];
+  // The branch lookup finds nothing. A read by number answers each pull request behind main.
+  const gh: RunGh = async (args) => {
     asked += 1;
+    const query = args[3] ?? '';
+    queries.push(query);
+    const numbers = [...query.matchAll(/issueOrPullRequest\(number: (\d+)\)/g)].map((one) => Number(one[1]));
+    if (numbers.length > 0) {
+      const data = Object.fromEntries(numbers.map((number, at) => [`t${at}`, { issueOrPullRequest: { __typename: 'PullRequest', number, state: 'OPEN', mergeStateStatus: 'BEHIND', baseRefName: 'main' } }]));
+      return { code: 0, stdout: JSON.stringify({ data }), stderr: '' };
+    }
     return { code: 0, stdout: JSON.stringify({ data: { viewer: { login: 'pat' }, t0: { pullRequests: { nodes: [] } } } }), stderr: '' };
   };
 
   beforeEach(() => {
     asked = 0;
+    queries = [];
     folder = mkdtempSync(join(tmpdir(), 'nolzu-pull-watch-'));
     const project = join(folder, 'recipes');
     mkdirSync(project, { recursive: true });
@@ -3360,6 +3370,24 @@ describe('the pull request found by itself', () => {
 
     live.watchPulls('APP-1');
     await vi.waitFor(() => expect(asked).toBe(2));
+  });
+
+  // Why a linked pull request cannot merge stays fresh. One that merged is not asked again.
+  it('reads a linked open pull request again each interval, and skips one that merged', async () => {
+    saveCardPull(live.db, 'APP-1', { repo: 'cook/recipes', number: 12, url: null, foundBy: 'branch', state: 'open' });
+    live.db.prepare("INSERT INTO cards (key, board, stage, state, title) VALUES ('APP-2', 'delivery', 'pr-watch', 'idle', 'Sort')").run();
+    saveCardPull(live.db, 'APP-2', { repo: 'cook/recipes', number: 13, url: null, foundBy: 'branch', state: 'merged' });
+
+    live.watchPulls();
+    await vi.waitFor(() => expect(cardPullRows(live.db, 'APP-1')[0]?.merge).toEqual({ blockers: [{ kind: 'behind', base: 'main' }], running: false }));
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain('issueOrPullRequest(number: 12)');
+    expect(queries[0]).not.toContain('number: 13');
+
+    // Once per interval, so a second call inside it asks nothing.
+    live.watchPulls();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(queries).toHaveLength(1);
   });
 
   it('asks nothing once the loop is closed', async () => {

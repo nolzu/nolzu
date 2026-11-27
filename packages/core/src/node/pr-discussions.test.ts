@@ -5,7 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { createCard } from './cards.ts';
 import { openDatabase } from './db.ts';
-import { applyTriage, beginFix, beginFixAll, cardDiscussions, cardPullRows, detachCardPull, type DiscussionInput, endFix, feedbackCounts, fixedSinceQa, lastJudgedQa, markDiscussion, markDiscussionsSeen, reopenFixed, saveCardPull, setDiscussionStatus, storeDiscussions } from './pr-discussions.ts';
+import { applyTriage, beginFix, beginFixAll, cardDiscussions, cardPullRows, detachCardPull, type DiscussionInput, endFix, feedbackCounts, fixedSinceQa, lastJudgedQa, markDiscussion, markDiscussionsSeen, mergeBlockersByCard, reopenFixed, saveCardPull, setDiscussionStatus, storeDiscussions } from './pr-discussions.ts';
 
 let dir = '';
 let db: DatabaseSync;
@@ -30,10 +30,37 @@ afterEach(() => {
 
 it('keeps one row per card and pull request, and an attached one stays attached', () => {
   saveCardPull(db, 'APP-1', { repo: 'cook/recipes', number: 12, url: null, foundBy: 'attached' });
-  expect(cardPullRows(db, 'APP-1')).toEqual([{ id: pull, card: 'APP-1', repo: 'cook/recipes', number: 12, url: 'https://github.com/cook/recipes/pull/12', title: null, state: null, foundBy: 'branch', readAt: null }]);
+  expect(cardPullRows(db, 'APP-1')).toEqual([{ id: pull, card: 'APP-1', repo: 'cook/recipes', number: 12, url: 'https://github.com/cook/recipes/pull/12', title: null, state: null, foundBy: 'branch', readAt: null, merge: null, mergeAt: null }]);
   const attached = saveCardPull(db, 'APP-1', { repo: 'cook/api', number: 3, url: null, foundBy: 'attached' });
   expect(saveCardPull(db, 'APP-1', { repo: 'cook/api', number: 3, url: null, foundBy: 'branch' })).toBe(attached);
   expect(cardPullRows(db, 'APP-1').map((one) => one.foundBy)).toEqual(['branch', 'attached']);
+});
+
+// Why it cannot merge, as the last read that asked saw it. A read that did not ask, or failed, keeps it.
+it('keeps the newest merge read with its time, and a save without one keeps it', () => {
+  const draft = { blockers: [{ kind: 'draft' as const }], running: false };
+  saveCardPull(db, 'APP-1', { repo: 'cook/recipes', number: 12, url: null, foundBy: 'branch', state: 'open', merge: draft });
+  const [first] = cardPullRows(db, 'APP-1');
+  expect(first?.merge).toEqual(draft);
+  expect(Date.parse(first?.mergeAt ?? '')).not.toBeNaN();
+
+  saveCardPull(db, 'APP-1', { repo: 'cook/recipes', number: 12, url: null, foundBy: 'branch', state: 'open' });
+  expect(cardPullRows(db, 'APP-1')[0]).toMatchObject({ merge: draft, mergeAt: first?.mergeAt });
+
+  const clear = { blockers: [], running: false };
+  saveCardPull(db, 'APP-1', { repo: 'cook/recipes', number: 12, url: null, foundBy: 'branch', merge: clear });
+  expect(cardPullRows(db, 'APP-1')[0]?.merge).toEqual(clear);
+});
+
+// The board chip reads every open pull request of a card in one list, in the chip's order.
+it('lists the reasons of each card across its open pull requests, in the chip order', () => {
+  saveCardPull(db, 'APP-1', { repo: 'cook/recipes', number: 12, url: null, foundBy: 'branch', state: 'open', merge: { blockers: [{ kind: 'draft' }], running: false } });
+  saveCardPull(db, 'APP-1', { repo: 'cook/api', number: 3, url: null, foundBy: 'branch', state: 'open', merge: { blockers: [{ kind: 'behind', base: 'main' }], running: false } });
+  saveCardPull(db, 'APP-1', { repo: 'cook/web', number: 4, url: null, foundBy: 'branch', state: 'merged', merge: { blockers: [{ kind: 'conflict', base: 'main' }], running: false } });
+  createCard(db, { key: 'APP-2', board: 'delivery', stage: 'review', title: 'Nothing blocks' });
+  saveCardPull(db, 'APP-2', { repo: 'cook/recipes', number: 13, url: null, foundBy: 'branch', state: 'open', merge: { blockers: [], running: true } });
+
+  expect([...mergeBlockersByCard(db)]).toEqual([['APP-1', [{ kind: 'behind', base: 'main' }, { kind: 'draft' }]]]);
 });
 
 it('keeps the title and state of the newest read that named them', () => {
