@@ -7,6 +7,7 @@ import { stubBinary, type StubBinary } from '../../test/stub-binary.ts';
 import { tempRepo, type TempRepo } from '../../test/temp-repo.ts';
 import { CLONE_TIMEOUT_MS, cloneInto } from './clone-into.ts';
 import { cloneRepository, cloneTarget } from './clone.ts';
+import { GIT_FLAGS, NO_HOOKS } from './exec.ts';
 
 let repo: TempRepo | null = null;
 let stub: StubBinary | null = null;
@@ -125,6 +126,26 @@ it('clones a local bare repository into the workspace, on its default branch', a
   const at = join(workspace, 'recipes');
   expect(execFileSync('git', ['branch', '--show-current'], { cwd: at, env, encoding: 'utf8' }).trim()).toBe('develop');
   expect(readFileSync(join(at, 'README.md'), 'utf8')).toBe('recipes\n');
+});
+
+// A template folder in the person's git config copies its hooks into every new repository, and git
+// runs post-checkout at the end of a clone. The clone runs with the hooks off, as every other git call.
+it("runs no hook from the person's template folder during a clone", async () => {
+  const { workspace, bare, env } = setUp(true);
+  const home = join(dirname(workspace), 'home');
+  const template = join(dirname(workspace), 'template');
+  const marker = join(dirname(workspace), 'hook-ran');
+  mkdirSync(home);
+  mkdirSync(join(template, 'hooks'), { recursive: true });
+  writeFileSync(join(template, 'hooks', 'post-checkout'), `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+  writeFileSync(env.GIT_CONFIG_GLOBAL ?? '', `[init]\n\ttemplateDir = ${template}\n`);
+
+  const cloned = await cloneInto({ workspace, url: bare, name: 'recipes', env: { ...env, HOME: home, XDG_CONFIG_HOME: home }, protocols: 'file' });
+
+  expect(cloned.ok).toBe(true);
+  // The hook reached the new repository, so only the hooks being off kept it from running.
+  expect(existsSync(join(workspace, 'recipes', '.git', 'hooks', 'post-checkout'))).toBe(true);
+  expect(existsSync(marker)).toBe(false);
 });
 
 // The allow list is what keeps git off the local disk, so the app's own setting must refuse it.
@@ -246,6 +267,18 @@ it('never hands git a URL that starts with "-" as an option', async () => {
   await cloneInto({ workspace, url: '-oProxyCommand=touch pwned', name: 'recipes', env: fake.env(env), protocols: 'https:ssh' });
   const clone = fake.seen().find((call) => call.args.includes('clone'));
   expect(clone?.args.slice(clone.args.indexOf('clone'))).toEqual(['clone', '--no-recurse-submodules', '--', '-oProxyCommand=touch pwned', 'recipes']);
+});
+
+// The settings every other git call gets, ahead of the subcommand: no fsmonitor, no submodule
+// recursion, bare repositories only by name, and the hooks off.
+it('starts the clone with the same settings as every other git call', async () => {
+  const { workspace, env } = setUp(false);
+  const fake = recordingGit();
+
+  await cloneInto({ workspace, url: 'https://github.com/nolzu/recipes.git', name: 'recipes', env: fake.env(env), protocols: 'https:ssh' });
+
+  const clone = fake.seen().find((call) => call.args.includes('clone'));
+  expect(clone?.args.slice(0, clone.args.indexOf('clone'))).toEqual([...GIT_FLAGS, ...NO_HOOKS]);
 });
 
 it('clones with no prompt, no askpass helper, ssh in batch mode and only https and ssh allowed', async () => {

@@ -698,3 +698,21 @@ it('writes the exclude lines through no link left at the temp name', async () =>
   expect(readFileSync(victim, 'utf8')).toBe('mine\n');
   expect(readFileSync(join(made.dir, '.git', 'info', 'exclude'), 'utf8')).toContain('/worktrees/');
 });
+
+// A card of a repository one folder down: git runs there, and the project is the folder the walk
+// starts from, so a linked `worktrees` folder in the project is refused before git makes the checkout.
+it("refuses a card checkout through a linked worktrees folder in the project, for a repository one folder down", async () => {
+  const made = fresh();
+  const web = join(made.dir, 'web');
+  mkdirSync(web);
+  execFileSync('git', ['init', '-q', '-b', 'main', web], { env: made.env });
+  writeFileSync(join(web, 'a.txt'), 'a\n');
+  execFileSync('git', ['-C', web, 'add', 'a.txt'], { env: made.env });
+  execFileSync('git', ['-C', web, 'commit', '-q', '-m', 'first'], { env: made.env });
+  const outside = join(made.dir, '..', 'outside');
+  mkdirSync(join(outside, 'APP-1'), { recursive: true });
+  symlinkSync(outside, join(made.dir, 'worktrees'));
+
+  await expect(ensureWorktree({ projectPath: made.dir, key: 'APP-1', branch: 'APP-1-work', baseBranch: 'main', repo: 'web', env: made.env })).rejects.toThrow(`${join(made.dir, 'worktrees')} is a link`);
+  expect(existsSync(join(outside, 'APP-1', 'web'))).toBe(false);
+});

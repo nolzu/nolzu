@@ -156,11 +156,14 @@ it('makes no checkout when there is no project, which is the fake engine case', 
 });
 
 // createLoop is handed its environment so a caller decides what git sees, and nothing is read behind
-// its back. A variable given only to the loop reaches git, which then writes its trace there. Not a
-// hook: Nolzu runs git with the repository's hooks off.
+// its back. A PATH given only to the loop leads to a git that notes it ran, then runs the real one.
 it('runs git with the environment the loop was given', async () => {
   live.close();
-  live = createLoop(dir, { ...process.env, NOLZU_FAKE_AGENT: '1', NOLZU_FAKE_DELAY_SCALE: '0', GIT_TRACE: join(dir, 'git-trace') });
+  const bin = join(dir, 'bin');
+  mkdirSync(bin);
+  const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  writeFileSync(join(bin, 'git'), `#!/bin/sh\necho "$@" >> '${join(dir, 'git-trace')}'\nexec '${realGit}' "$@"\n`, { mode: 0o755 });
+  live = createLoop(dir, { ...process.env, NOLZU_FAKE_AGENT: '1', NOLZU_FAKE_DELAY_SCALE: '0', PATH: `${bin}:${process.env.PATH ?? ''}` });
   live.engine.spawn = async function* () {
     yield RESULT;
   };

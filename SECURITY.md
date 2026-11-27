@@ -114,16 +114,39 @@ on macOS, bubblewrap on Linux. These are the promises it makes:
   `logs`, `rr-cache`, `rebase-merge`, `rebase-apply`, `sequencer` and `worktrees`. It fails the card
   with a sentence naming the path for a link, a file with a second name, or a named pipe. A socket,
   such as the one git's fsmonitor daemon keeps there, passes. And before each git command of its own
-  that writes there (commit, fetch, pull, merge, push, stash, reset, checkout, switch, rebase,
-  cherry-pick, revert, am, update-ref, branch, tag, notes, gc, pack-refs, worktree), in any folder,
-  Nolzu looks the same way and refuses the command with that sentence. The `objects`, `lfs`, `hooks`
-  and `modules` folders are not looked in, and neither are the other folders of the shared git
-  folder, such as `info`. So a named pipe a run leaves under `objects` is not found, and can make
-  Nolzu's git commands in that repository hang. It writes nothing elsewhere. A link of your own at
+  that writes, in any folder, Nolzu looks the same way and refuses the command with that sentence.
+  One table in the runner lists every git command Nolzu runs as a read, a write or a network
+  command. A test fails when a git call in the code names a command the table does not list (it reads
+  the argument lists written out in the code, not ones built at run time), and a command it does not
+  list counts as a write. A command counts as a read only when each of its options is one the table
+  names for a read, written out in full: git also takes a shortened option, such as `--unset-a` for
+  `--unset-all`, and `--output` has `diff`, `log` and `show` write a file. For `config` only the
+  options before the first word count, as git reads them: `git config a.b --get` stores `--get` as a
+  value, so it counts as a write. So `add`, `rm`, `submodule`, and `config`, `remote`, `branch` and
+  `symbolic-ref` when they change something, are checked as well as commit, fetch, pull, merge,
+  push, reset, checkout, restore, update-ref and worktree. For `init`, `clone` and `worktree add`
+  the check also walks the new folder's path from the folder Nolzu owns (the project when a card's
+  checkout is made, else the folder git is started in, never a `-C` folder) down to it, and refuses a
+  link at any step, also one that points nowhere yet. A link above that folder is your own setup and
+  passes. Such a command is refused when the new folder, a separate git folder or a `-C` folder is
+  written with a `..` part, because the system follows a link before it climbs back up. A new
+  repository's folder that holds a repository already has its git folders checked. The clone that
+  adds a repository to a workspace starts git apart from this check: Nolzu makes its folder itself
+  right before, and a name that is there already is refused. The `objects`, `lfs`, `hooks` and
+  `modules` folders are not looked in, and neither are the other folders of the shared git folder,
+  such as `info`. So a named pipe a run leaves under `objects` is not found, and can make Nolzu's git
+  commands in that repository hang. It writes nothing elsewhere. A link of your own at
   the top of the shared git folder, such as a linked `config` or `objects`, also stops Nolzu's git
   commands that write in that repository. A linked `hooks` folder passes. A read such as `status` is
   not checked, so git's own error for a linked `packed-refs` can show a line of the file it points
   to on the card, where only you see it.
+- The environment Nolzu builds for its git calls (`gitEnv`) leaves out `GIT_DIR`, `GIT_WORK_TREE`,
+  `GIT_COMMON_DIR`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`,
+  `GIT_SHALLOW_FILE`, `GIT_NAMESPACE`, `GIT_EXEC_PATH` and every variable whose name starts with
+  `GIT_TRACE` from the environment Nolzu starts with. So a value git exported into a hook, or one
+  captured from the login shell, cannot point Nolzu's git at another repository's folders or have it
+  write a trace file. `GIT_CONFIG_GLOBAL`, `GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_ASKPASS`, `GIT_EDITOR`
+  and `GIT_PAGER` stay: they come from your own environment, as your choice.
 - These checks look before git writes, not while it writes. So there is a gap: a run that is live at
   the same time in the same repository, such as another card's run, or a process a run left behind,
   can swap a folder between Nolzu's check and git's write. The macOS wall refuses a new link but not
@@ -187,7 +210,9 @@ on macOS, bubblewrap on Linux. These are the promises it makes:
   and ref update Nolzu makes. The commit box, the push dialog and the Workspace page say so, and
   their Run hooks tick turns the hooks on for that one press, off by
   default. The first commit of a new workspace runs your hooks, since no run has written there
-  yet. A repository that uses Git LFS needs Run hooks on the push, because LFS uploads its
+  yet. A clone runs with the hooks off and the same settings as every other git command, so a
+  hook a template folder in your git config copies into the new repository does not run during
+  the clone. A repository that uses Git LFS needs Run hooks on the push, because LFS uploads its
   files from a pre-push hook.
 - The Workspace page's routes name a folder by the id the status gave out, never by a path, and take
   only a file the folder's status lists now: a path that climbs with `..`, is absolute, or goes

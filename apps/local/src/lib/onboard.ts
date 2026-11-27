@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -350,7 +350,7 @@ export function removeMade(made: readonly string[]): void {
 async function makeWorkspace(db: DatabaseSync, answer: WorkspaceAnswer | FolderAnswer, keepTeam = false): Promise<WorkspaceResult> {
   const target: FolderTarget = 'folder' in answer ? folderTarget(answer) : withMissing(workspaceTarget(answer));
   if (!target.ok) return target;
-  const { path, parent, missing } = target;
+  const { parent, missing } = target;
 
   const env = gitEnv(plainEnv(answer.env ?? process.env));
   // No git at all throws, and on a Mac with no Command Line Tools Apple's stand-in answers with
@@ -375,8 +375,11 @@ async function makeWorkspace(db: DatabaseSync, answer: WorkspaceAnswer | FolderA
     }
   } catch {
     removeMade(madeHere);
-    return { ok: false, reason: `${path} could not be made. Check that you can write in ${parent}.` };
+    return { ok: false, reason: `${target.path} could not be made. Check that you can write in ${parent}.` };
   }
+  // A typed folder that is a link to an empty folder is the folder it points to: git refuses to make a
+  // repository through a link, and the stored path then names the real folder.
+  const path = lstatSync(target.path).isSymbolicLink() ? realpathSync.native(target.path) : target.path;
   // The branch is named, or git takes init.defaultBranch and the stored base branch would be one
   // the repository has not got.
   const started = await git(['init', '-q', '-b', 'main', path], { cwd: path, env });

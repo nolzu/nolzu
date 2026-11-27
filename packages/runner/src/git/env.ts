@@ -22,11 +22,22 @@ export function gitEnv(base: Record<string, string | undefined>, options: GitEnv
   // into rebase --exec and bisect run, and the login shell environment is captured and passed on,
   // so one can arrive without anybody setting it here. Left in place, git answers about that
   // repository whatever folder it is asked about, and a card would commit into one the person
-  // never chose.
+  // never chose. The shared git folder, other object folders and the shallow file are pointers of
+  // the same kind, and a write through one lands outside the repository asked about.
   delete env.GIT_DIR;
   delete env.GIT_WORK_TREE;
+  delete env.GIT_COMMON_DIR;
   delete env.GIT_INDEX_FILE;
   delete env.GIT_OBJECT_DIRECTORY;
+  delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+  delete env.GIT_SHALLOW_FILE;
+  // Refs under another name space, git's own programs from another folder, and trace output, which
+  // GIT_TRACE and its kin write to any file they name.
+  delete env.GIT_NAMESPACE;
+  delete env.GIT_EXEC_PATH;
+  for (const name of Object.keys(env)) {
+    if (name.startsWith('GIT_TRACE')) delete env[name];
+  }
 
   // Config set through the environment for one run, which can turn a plain push into a force or
   // send it to another URL. It arrives the same way the variables above do: git exports it into

@@ -1,7 +1,9 @@
+import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { tempRepo, type TempRepo } from '../../test/temp-repo.ts';
+import { gitCall, gitKind } from './commands.ts';
 import { commitPaths, outsideRepo, pushUpstream, readRepo, repoPatch, type WorkspaceFile } from './workspace.ts';
 
 let repo: TempRepo | null = null;
@@ -102,15 +104,25 @@ it('counts ahead and behind against the upstream as git last knew it, and never 
   one.write('mine.md', 'x\n');
   one.commit('mine');
   landElsewhere(one, bare);
+  // A git first on the PATH that notes each call and hands it on, since Nolzu's git drops GIT_TRACE.
   const trace = join(one.dir, '..', 'trace.txt');
+  const bin = join(one.dir, '..', 'bin');
+  mkdirSync(bin);
+  const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  writeFileSync(join(bin, 'git'), `#!/bin/sh\nfor arg in "$@"; do printf '%s\\t' "$arg"; done >> '${trace}'\necho >> '${trace}'\nexec '${realGit}' "$@"\n`, { mode: 0o755 });
 
-  const before = await readRepo({ folder: one.dir, env: { ...one.env, GIT_TRACE: trace } });
+  const before = await readRepo({ folder: one.dir, env: { ...one.env, PATH: `${bin}:${one.env.PATH ?? ''}` } });
 
   expect(before).toMatchObject({ ok: true, upstream: 'origin/main', ahead: 1, behind: 0 });
   expect(before.ok && before.confirmation).toBe(`Push main to origin at ${bare}.`);
-  const said = readFileSync(trace, 'utf8');
-  expect(said).toContain('status');
-  expect(said).not.toMatch(/fetch|ls-remote|remote-/);
+  // Each argument ends in a tab, so the last one stays whole.
+  const calls = readFileSync(trace, 'utf8')
+    .split('\n')
+    .filter((line) => line !== '')
+    .map((line) => line.split('\t').slice(0, -1));
+  expect(calls.map((args) => gitCall(args, '.').command)).toContain('status');
+  // Every call reads: no fetch, no `remote show` or `remote update`, no write of any kind.
+  expect(calls.filter((args) => gitKind(args) !== 'read')).toEqual([]);
 
   one.run('fetch', '-q');
   expect(await read(one)).toMatchObject({ ahead: 1, behind: 1 });

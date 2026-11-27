@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { gitDirs } from '../wall-detect.ts';
+import { gitCall, gitKind, madeFolders } from './commands.ts';
 
 // git writes several files in its folders by name, with an open that follows a link: COMMIT_EDITMSG,
 // FETCH_HEAD, MERGE_MSG, MERGE_HEAD, ORIG_HEAD, SQUASH_MSG, AUTO_MERGE, the reflogs it appends to on
@@ -113,44 +114,6 @@ export const gitLinkSentence = (found: GitLink): string =>
       ? `${found.path} is a file with a second name, where git writes by name. Nolzu stopped before running git there. Remove it, and check the file it shares its content with.`
       : `${found.path} is a named pipe or a device, where git writes by name. Nolzu stopped before running git there. Remove it.`;
 
-// The commands that write in a checkout's git folders, where Nolzu checks for a link first. A read
-// such as status or log writes nothing there by name, and is left unchecked to keep it fast.
-const WRITES = new Set([
-  'am',
-  'branch',
-  'checkout',
-  'cherry-pick',
-  'commit',
-  'fetch',
-  'gc',
-  'merge',
-  'notes',
-  'pack-refs',
-  'pull',
-  'push',
-  'rebase',
-  'reset',
-  'restore',
-  'revert',
-  'stash',
-  'switch',
-  'symbolic-ref',
-  'tag',
-  'update-ref',
-  'worktree',
-]);
-
-// The read forms of those commands Nolzu runs, left unchecked: a branch list, the current branch, the
-// worktree list, and `symbolic-ref` with one ref, which reads it.
-const READ_FLAGS = new Set(['--show-current', '--list', '--contains', '--all']);
-function writes(command: string, rest: readonly string[]): boolean {
-  if (!WRITES.has(command)) return false;
-  if (command === 'branch') return !rest.some((arg) => READ_FLAGS.has(arg));
-  if (command === 'worktree') return rest[0] !== 'list';
-  if (command === 'symbolic-ref') return rest.filter((arg) => !arg.startsWith('-')).length > 1;
-  return true;
-}
-
 // The git folders a call works in: the ones GIT_DIR and GIT_COMMON_DIR name, or those of the nearest
 // folder up from where it runs that has a `.git`, as git finds them.
 function dirsOf(folder: string, env: Record<string, string | undefined> | undefined): { own: string; common: string } | undefined {
@@ -169,16 +132,48 @@ function dirsOf(folder: string, env: Record<string, string | undefined> | undefi
   }
 }
 
-/** For a git call that writes in a checkout's git folders, the sentence that refuses it over a link there; else null. */
-export function linkBeforeWrite(args: readonly string[], cwd: string, env: Record<string, string | undefined> | undefined): string | null {
-  let at = 0;
-  let folder = cwd;
-  while (args[at] === '-C' || args[at] === '-c') {
-    if (args[at] === '-C') folder = resolve(folder, args[at + 1] ?? '');
-    at += 2;
+/**
+ * For a git call that writes, the sentence that refuses it over a link where it writes; else null.
+ * `owner` is the folder Nolzu owns the call happens in, the project or the workspace: a link from it
+ * down to a folder the call makes is refused, and a link above it is the person's own setup. Left
+ * out, it is the folder the call runs in, never a `-C` folder, which a link may lead to.
+ */
+export function linkBeforeWrite(args: readonly string[], cwd: string, env: Record<string, string | undefined> | undefined, owner?: string): string | null {
+  // A read writes nothing there by name, and is left unchecked to keep it fast. Every other kind is
+  // checked, a subcommand the table does not list among them (`gitKind`).
+  const kind = gitKind(args);
+  if (kind === 'read' || kind === 'network-read') return null;
+  const call = gitCall(args, cwd);
+  const made = madeFolders(call);
+  // The system follows a link before it climbs back up a `..`, and the walk below reads the path with
+  // the `..` taken out, so a path with one could lead past the walk to where a link points.
+  const climbs = [...(made.length > 0 ? call.moves : []), ...made].find((path) => path.split(/[/\\]/).includes('..'));
+  if (climbs !== undefined) return `${climbs} has a .. part, which leads wherever a link before it points. Nolzu stopped before running git there. Name the folder without ..`;
+  for (const folder of made) {
+    const link = linkOnTheWay(owner ?? cwd, resolve(call.folder, folder));
+    if (link !== null) return link;
   }
-  if (!writes(args[at] ?? '', args.slice(at + 1))) return null;
-  const dirs = dirsOf(folder, env);
+  // `init` and `clone` write in no repository but the new one, and one that is there already has its
+  // git folders checked, as git writes in them again. `worktree add` writes in its repository's.
+  const dirs = made.length > 0 && call.command !== 'worktree' ? gitDirs(resolve(call.folder, made[0] ?? '')) : dirsOf(call.folder, env);
   const found = dirs === undefined ? null : gitLinkIn(dirs);
   return found === null ? null : gitLinkSentence(found);
+}
+
+// A link at any step from the owner folder down to `target`, `target` itself included, would have git
+// make the folder where the link points, also one that points nowhere yet. A target outside the owner
+// is walked from the folder the two share. A step that is not there ends the walk: git makes the rest.
+function linkOnTheWay(owner: string, target: string): string | null {
+  const to = resolve(target);
+  let from = resolve(owner);
+  while (to !== from && !to.startsWith(from.endsWith(sep) ? from : `${from}${sep}`)) from = dirname(from);
+  const steps = relative(from, to).split(sep).filter((step) => step !== '');
+  let at = from;
+  for (const step of steps.length === 0 ? [''] : steps) {
+    at = join(at, step);
+    const stat = lstatSync(at, { throwIfNoEntry: false });
+    if (stat === undefined) return null;
+    if (stat.isSymbolicLink()) return `${at} is a link, so git would make its folder where the link points. Nolzu stopped before running git there. Remove the link, or use the folder it points to.`;
+  }
+  return null;
 }

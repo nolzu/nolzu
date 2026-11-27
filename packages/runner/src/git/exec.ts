@@ -21,6 +21,9 @@ export interface GitOptions {
   // True runs the repository's git hooks. Only a commit or a push the person turned hooks on for, and
   // the first commit of a new workspace, which no run has written yet, pass it.
   hooks?: boolean;
+  // The folder Nolzu owns the call happens in, the project or the workspace, for a call that makes a
+  // folder (`linkBeforeWrite`). Left out, the folder the call runs in.
+  owner?: string;
 }
 
 // The one place that spawns git. It never throws on a non-zero exit, because git reports
@@ -46,7 +49,7 @@ export const exitCode = (code: number | null, signal: NodeJS.Signals | null): nu
 // refuse such a folder unless a caller names it with GIT_DIR, which Nolzu does only for a repository
 // it found before the run (git 2.38 and newer). `push.recurseSubmodules=no` keeps a push from pushing
 // or checking a repository a run made inside the checkout, whatever a config asks.
-const GIT_FLAGS = [
+export const GIT_FLAGS = [
   '-c',
   'core.quotepath=false',
   '-c',
@@ -69,12 +72,12 @@ const GIT_FLAGS = [
 // in its own checkout, and git would run them here, outside the wall: on a commit or a push, and on
 // a merge, a checkout or any ref update through post-checkout or reference-transaction. One empty
 // hooks folder covers every hook manager, because each one is started from a git hook.
-const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null'];
+export const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null'];
 
 export function git(args: readonly string[], options: GitOptions): Promise<GitResult> {
   // A link a run left where git writes by name would have this call write the file it points to, here
   // outside the wall (`linkBeforeWrite`). Refused like any git failure, with the sentence as stderr.
-  const link = linkBeforeWrite(args, options.cwd, options.env);
+  const link = linkBeforeWrite(args, options.cwd, options.env, options.owner);
   if (link !== null) return Promise.resolve({ code: 128, stdout: '', stderr: link });
   return args[0] === 'add' ? addWithoutGitlinks(args, options) : spawnGit(withFlags(args), options);
 }
