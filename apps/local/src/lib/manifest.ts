@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { isFolderName } from '@nolzu/core';
-import { cloneTarget, commitKnowledgeFiles, git, gitEnv, type RunGit, writablePath } from '@nolzu/runner';
+import { projectPlace, cloneTarget, commitKnowledgeFiles, git, gitEnv, type RunGit, writablePath } from '@nolzu/runner';
 
 /**
  * The tracked list of a project's clones, so a teammate who clones the workspace can clone the rest.
@@ -169,7 +169,7 @@ export async function recordInRoot(
   env: Record<string, string | undefined>,
   subject?: string,
 ): Promise<Recorded> {
-  const run: RunGit = (args) => git(args, { cwd: project, env: gitEnv(env as Record<string, string>) });
+  const run: RunGit = (args) => git(args, { cwd: project, env: gitEnv(env as Record<string, string>), repo: projectPlace(project) });
   const top = await run(['rev-parse', '--show-prefix']);
   if (top.code !== 0 || top.stdout.trim() !== '' || clones.length === 0) return { recorded: false, problem: null };
   const names = clones.map((clone) => clone.folder).join(', ');
@@ -241,7 +241,7 @@ export async function forgetInRoot(
   const nothing = { finish: async () => null };
   // git cannot start in a folder that is gone, and such a folder has nothing to take out.
   if (!existsSync(project)) return nothing;
-  const run: RunGit = (args) => git(args, { cwd: project, env: gitEnv(env as Record<string, string>) });
+  const run: RunGit = (args) => git(args, { cwd: project, env: gitEnv(env as Record<string, string>), repo: projectPlace(project) });
   const top = await run(['rev-parse', '--show-prefix']);
   if (top.code !== 0 || top.stdout.trim() !== '') return nothing;
 

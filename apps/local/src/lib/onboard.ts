@@ -5,8 +5,8 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { ProjectScan, ScannedRepo } from '@nolzu/protocol';
 import { DEEP_FILES, isFolderName, proposeAllowedCommands, needsOnboarding, planKnowledgeMoves, prefixProblem, type ProjectRepo, projectRepos, type RecipeFacts, repoKnowledge, repoKnowledgePath, resolveKnowledgeDir, RUN_RECIPE_FILE, runRecipe, validateSetting } from '@nolzu/core';
 import { getSetting, pendingKnowledgeChanges, writeSetting } from '@nolzu/core/node';
-import {
-  applyPlan,
+import { knowledgeRepo, pinProjectGit } from './db.ts';
+import { applyPlan,
   checkKnowledgeDir,
   commitKnowledgeFiles,
   detectEngines,
@@ -120,6 +120,10 @@ function saveProjectPath(db: DatabaseSync, path: string, keepTeam = false): void
     writeSetting(db, 'qaApp', null);
   }
   writeSetting(db, 'projectPath', path);
+  // Where its `.git` leads, and the repository of its knowledge, are recorded again for the folder now chosen.
+  writeSetting(db, 'gitLink', null);
+  writeSetting(db, 'knowledgeRepo', null);
+  pinProjectGit(db);
   if (getSetting(db, 'repos') !== null) writeSetting(db, 'repos', null);
   // After the list, because a workspace flag is refused while a list that needs it is stored.
   if (getSetting(db, 'workspace') !== null) writeSetting(db, 'workspace', null);
@@ -235,7 +239,7 @@ export async function baseBranchProblem(path: string, base: string, env: Record<
 export async function trackBaseBranch(path: string, base: string, env: Record<string, string | undefined> = process.env, repo: string | null = null): Promise<string | null> {
   // No check first: git refuses a name a local branch has (there is no -f) and a branch origin has not
   // got, and baseBranchProblem then answers. A leading dash would read as an option, such as -f.
-  if (!base.startsWith('-')) await git(['branch', '--quiet', '--track', base, `refs/remotes/origin/${base}`], { cwd: path, env: gitEnv(plainEnv(env)) });
+  if (!base.startsWith('-')) await git(['branch', '--quiet', '--track', base, `refs/remotes/origin/${base}`], { cwd: path, env: gitEnv(plainEnv(env)), repo: { project: path, workTree: path } });
   return baseBranchProblem(path, base, env, repo);
 }
 
@@ -382,7 +386,8 @@ async function makeWorkspace(db: DatabaseSync, answer: WorkspaceAnswer | FolderA
   const path = lstatSync(target.path).isSymbolicLink() ? realpathSync.native(target.path) : target.path;
   // The branch is named, or git takes init.defaultBranch and the stored base branch would be one
   // the repository has not got.
-  const started = await git(['init', '-q', '-b', 'main', path], { cwd: path, env });
+  const here = { project: path, workTree: path };
+  const started = await git(['init', '-q', '-b', 'main', path], { cwd: path, env, repo: here });
   if (started.code !== 0) {
     removeMade(madeHere);
     return { ok: false, reason: `git could not start a repository in ${path}. ${started.stderr.trim()}` };
@@ -400,8 +405,8 @@ async function makeWorkspace(db: DatabaseSync, answer: WorkspaceAnswer | FolderA
 
   // add -A, not add -u: in a fresh repository every file is untracked. The person's hooks run on this
   // commit, because only Nolzu has written in the folder yet.
-  const added = await git(['add', '-A'], { cwd: path, env });
-  const made = added.code !== 0 ? added : await git(['commit', '-q', '--cleanup=verbatim', '-m', 'chore: start the workspace'], { cwd: path, env, hooks: true });
+  const added = await git(['add', '-A'], { cwd: path, env, repo: here });
+  const made = added.code !== 0 ? added : await git(['commit', '-q', '--cleanup=verbatim', '-m', 'chore: start the workspace'], { cwd: path, env, hooks: true, repo: here });
   if (made.code !== 0) {
     const said = made.stderr.trim();
     return { ok: false, reason: `The workspace files are written, but git could not commit them in ${path}. ${said === '' ? 'git said nothing about why.' : said}` };
@@ -579,7 +584,8 @@ export async function writeRepoKnowledge(db: DatabaseSync, repos: readonly { pat
   } catch (error) {
     return { written: [], problem: `Could not make the knowledge folder ${folder}. ${(error as Error).message}` };
   }
-  const run: RunGit = (args) => git(args, { cwd: folder, env: gitEnv(plainEnv(env)) });
+  const repo = await knowledgeRepo(db, folder, gitEnv(plainEnv(env)));
+  const run: RunGit = (args) => git(args, { cwd: folder, env: gitEnv(plainEnv(env)), repo });
   const check = await checkKnowledgeDir(folder, { projectPath, run, repos: projectRepos({ repos: getSetting(db, 'repos'), baseBranch: getSetting(db, 'baseBranch') }).map((repo) => repo.path) });
   if (!check.ok && check.problem !== 'no-repository') {
     // The folder was made only to ask, so a refusal leaves nothing behind.
@@ -702,7 +708,8 @@ export async function moveOldKnowledge(db: DatabaseSync, env: Record<string, str
   if (plan.moves.length === 0) return { said: takenLine(plan.taken), refused: null };
   const refuse = (why: string): KnowledgeMoveReport => ({ said: null, refused: `${NOT_MOVED} ${why} ${AGAIN}` });
 
-  const run: RunGit = (args) => git(args, { cwd: folder, env: gitEnv(plainEnv(env)) });
+  const repo = await knowledgeRepo(db, folder, gitEnv(plainEnv(env)));
+  const run: RunGit = (args) => git(args, { cwd: folder, env: gitEnv(plainEnv(env)), repo });
   const repos = projectRepos({ repos: getSetting(db, 'repos'), baseBranch: getSetting(db, 'baseBranch') }).map((repo) => repo.path);
   // The same check every knowledge run makes, so a folder git ignores, or a repository folder in it
   // that a .gitignore line without a leading slash matches, gets the same sentence.

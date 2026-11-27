@@ -34,7 +34,7 @@ function projectFolder(db: DatabaseSync): { project: string } | { problem: strin
  * a moment ago and nothing of the person's is in it.
  */
 async function cloneBase(project: string, folder: string, wanted: string | null, env: Env): Promise<{ base: string } | { reason: string }> {
-  const run = (args: string[]) => git(args, { cwd: join(project, folder), env: gitEnv(env as Record<string, string>) });
+  const run = (args: string[]) => git(args, { cwd: join(project, folder), env: gitEnv(env as Record<string, string>), repo: { project, workTree: join(project, folder) } });
   if (wanted !== null && (await run(['rev-parse', '--verify', '--quiet', `refs/heads/${wanted}`])).code !== 0) {
     const made = await run(['branch', '--quiet', '--track', wanted, `refs/remotes/origin/${wanted}`]);
     if (made.code !== 0) return { reason: `The base branch ${wanted} that the manifest names is not in ${folder}.` };

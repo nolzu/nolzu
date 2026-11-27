@@ -99,7 +99,7 @@ export async function copyToPush(from: string, to: string, env: Env): Promise<{ 
   // "--" so a folder whose name starts with "-" is never read as an option.
   const copied = await git(['clone', '--quiet', '--no-recurse-submodules', '--', from, to], { cwd: dirname(to), env: base });
   if (copied.code !== 0) return { ok: false, reason: `Git could not copy ${name}. ${lastLine(copied.stderr)}`.trim() };
-  const run = (args: string[]) => git(args, { cwd: to, env: base });
+  const run = (args: string[]) => git(args, { cwd: to, env: base, repo: { project: to, workTree: to } });
   if ((await run(['rev-parse', '--verify', '--quiet', 'HEAD'])).code !== 0) {
     return { ok: false, reason: `${name} has no commit yet, so there is nothing to put on GitHub. Make a first commit in it, then try again.` };
   }
@@ -122,7 +122,7 @@ export async function firstCommit(to: string, readme: string, env: Env): Promise
     return `Nolzu could not make the folder ${to}. ${(error as Error).message}`;
   }
   const base = gitEnv(env);
-  const run = (args: string[]) => git(args, { cwd: to, env: base });
+  const run = (args: string[]) => git(args, { cwd: to, env: base, repo: { project: to, workTree: to } });
   writeFileSync(join(to, 'README.md'), readme);
   for (const args of [['init', '-q', '-b', 'main'], ['add', 'README.md'], ['commit', '-q', '-m', 'chore: first commit']]) {
     const done = await run(args);

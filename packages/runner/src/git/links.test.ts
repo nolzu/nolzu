@@ -44,9 +44,9 @@ function setUp() {
 
 const commit = (made: TempRepo, card: string) => {
   writeFileSync(join(card, 'more.ts'), 'export const more = 1;\n');
-  return commitCard({ worktreePath: card, message: 'add more', include: ['more.ts'], env: made.env });
+  return commitCard({ worktreePath: card, repo: { project: join(made.dir, '..'), workTree: card, commonDir: join(made.dir, '.git') }, message: 'add more', include: ['more.ts'], env: made.env });
 };
-const pull = (made: TempRepo, card: string) => pullBranch({ worktreePath: card, branch: 'APP-1-work', remote: 'origin', env: made.env });
+const pull = (made: TempRepo, card: string) => pullBranch({ worktreePath: card, repo: { project: join(made.dir, '..'), workTree: card, commonDir: join(made.dir, '.git') }, branch: 'APP-1-work', remote: 'origin', env: made.env });
 const fetch = (made: TempRepo, card: string) => git(['fetch', '-q', 'origin'], { cwd: card, env: made.env });
 
 // A socket at `path`, made at a short path first, because a socket's path has a short length limit.
@@ -240,9 +240,10 @@ describe('the link check before every git command that writes', () => {
     const s = setUp();
     symlinkSync(s.canary, join(s.own, 'SQUASH_MSG'));
     writeFileSync(join(s.card, 'more.ts'), 'export const more = 1;\n');
-    const added = await git(['add', '--', 'more.ts'], { cwd: s.card, env: s.made.env });
+    const repo = { project: join(s.made.dir, '..'), workTree: s.card, commonDir: s.common };
+    const added = await git(['add', '--', 'more.ts'], { cwd: s.card, env: s.made.env, repo });
     expect(added).toEqual({ code: 128, stdout: '', stderr: expect.stringContaining('SQUASH_MSG is a link') });
-    const removed = await git(['rm', '-q', '--', 'list.ts'], { cwd: s.card, env: s.made.env });
+    const removed = await git(['rm', '-q', '--', 'list.ts'], { cwd: s.card, env: s.made.env, repo });
     expect(removed).toEqual({ code: 128, stdout: '', stderr: expect.stringContaining('SQUASH_MSG is a link') });
     expect(s.made.run('-C', s.card, 'status', '--porcelain')).toBe('?? more.ts\n');
     expect(readFileSync(s.canary, 'utf8')).toBe('export IMPORTANT=1\n');
@@ -280,7 +281,7 @@ describe('the link check before every git command that writes', () => {
     const bare = join(s.made.dir, '..', 'remote.git');
     const cloned = await git(['clone', '-q', '--', bare, target], { cwd: join(s.made.dir, '..'), env: s.made.env });
     expect(cloned).toEqual({ code: 128, stdout: '', stderr: `${target} is a link, so git would make its folder where the link points. Nolzu stopped before running git there. Remove the link, or use the folder it points to.` });
-    const started = await git(['init', '-q', target], { cwd: join(s.made.dir, '..'), env: s.made.env });
+    const started = await git(['init', '-q', target], { cwd: join(s.made.dir, '..'), env: s.made.env, repo: { project: target, workTree: target } });
     expect(started.code).toBe(128);
     expect(readdirSync(outside)).toEqual([]);
     // A dangling link counts too: git would make the folder where it points.
@@ -300,13 +301,14 @@ describe('the link check before every git command that writes', () => {
     symlinkSync(join(base, 'nowhere'), join(ws, 'dangling'));
     const bare = join(base, 'remote.git');
     for (const args of [['init', '-q', join(ws, 'sub', 'new')], ['init', '-q', 'dangling/a/b'], ['clone', '-q', '--', bare, 'sub/copy'], ['init', '--separate-git-dir', join(ws, 'sub', 'g'), 'fine']]) {
-      const said = await git(args, { cwd: ws, env: s.made.env });
+      // A clone makes a repository and names none, as Nolzu's clones do.
+      const said = await git(args, { cwd: ws, env: s.made.env, repo: args[0] === 'clone' ? undefined : { project: ws, workTree: ws } });
       expect([args, said.code, said.stderr]).toEqual([args, 128, expect.stringMatching(/(sub|dangling) is a link, so git would make its folder where the link points/)]);
     }
     expect(readdirSync(outside)).toEqual([]);
     expect(existsSync(join(base, 'nowhere'))).toBe(false);
     // A link above the folder the call runs in is the person's own setup, as macOS keeps its temp folder.
-    const started = await git(['init', '-q', 'new'], { cwd: join(ws, 'sub'), env: s.made.env });
+    const started = await git(['init', '-q', 'new'], { cwd: join(ws, 'sub'), env: s.made.env, repo: { project: ws, workTree: join(ws, 'sub', 'new') } });
     expect(started.code).toBe(0);
     expect(readdirSync(outside)).toEqual(['new']);
   });
@@ -317,7 +319,7 @@ describe('the link check before every git command that writes', () => {
     mkdirSync(outside);
     symlinkSync(outside, join(s.made.dir, 'worktrees'));
     const target = join(s.made.dir, 'worktrees', 'APP-2');
-    const said = await git(['worktree', 'add', '-q', '-b', 'APP-2-work', target], { cwd: s.made.dir, env: s.made.env });
+    const said = await git(['worktree', 'add', '-q', '-b', 'APP-2-work', target], { cwd: s.made.dir, env: s.made.env, repo: { project: s.made.dir, workTree: s.made.dir } });
     expect(said).toEqual({ code: 128, stdout: '', stderr: expect.stringContaining(`${join(s.made.dir, 'worktrees')} is a link`) });
     // From a repository one folder down, the project named as the owner still covers the walk.
     const web = join(s.made.dir, 'web');
@@ -337,12 +339,12 @@ describe('the link check before every git command that writes', () => {
     mkdirSync(join(outside, 'a'), { recursive: true });
     mkdirSync(ws);
     symlinkSync(join(outside, 'a'), join(ws, 'sub'));
-    const climbs = await git(['init', '-q', 'sub/../new'], { cwd: ws, env: s.made.env });
+    const climbs = await git(['init', '-q', 'sub/../new'], { cwd: ws, env: s.made.env, repo: { project: ws, workTree: ws } });
     expect(climbs).toEqual({ code: 128, stdout: '', stderr: 'sub/../new has a .. part, which leads wherever a link before it points. Nolzu stopped before running git there. Name the folder without ..' });
     for (const args of [['init', '--separate-git-dir', 'sub/../g', 'fine'], ['-C', 'sub/..', 'init', '-q', 'x'], ['worktree', 'add', 'sub/../wt']]) {
       expect(linkBeforeWrite(args, ws, s.made.env)).toContain('has a .. part');
     }
-    const moved = await git(['-C', 'sub', 'init', '-q', 'new'], { cwd: ws, env: s.made.env });
+    const moved = await git(['-C', 'sub', 'init', '-q', 'new'], { cwd: ws, env: s.made.env, repo: { project: ws, workTree: ws } });
     expect(moved).toEqual({ code: 128, stdout: '', stderr: expect.stringContaining(`${join(ws, 'sub')} is a link`) });
     expect(readdirSync(outside)).toEqual(['a']);
     expect(readdirSync(join(outside, 'a'))).toEqual([]);

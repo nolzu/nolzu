@@ -1,8 +1,9 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import { gitEnv } from './env.ts';
 import { withCardLock, withRepoLock } from './lock.ts';
 import { git } from './exec.ts';
+import { projectPlace } from './places.ts';
 import { parseWorktrees } from './porcelain.ts';
 
 // Both sit under the project root, so every agent's git status would list them as untracked and
@@ -103,6 +104,24 @@ const lstatOrNull = (path: string) => {
   }
 };
 
+// Each folder from `from` down to `to`, made when it is not there. One that is there must be a folder
+// and not a link, so nothing is made where a link points.
+function makeFolders(from: string, to: string): void {
+  let at = from;
+  for (const step of relative(from, to).split(sep)) {
+    at = join(at, step);
+    try {
+      mkdirSync(at);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+    const found = lstatOrNull(at);
+    if (found === null || found.isSymbolicLink() || !found.isDirectory()) {
+      throw new Error(`${at} is ${found?.isSymbolicLink() === true ? 'a link' : 'not a folder'}, so Nolzu did not make the card's checkout in it. Move it away, then start the card again.`);
+    }
+  }
+}
+
 function addExcludes(commonDir: string): void {
   const info = join(commonDir, 'info');
   const file = join(info, 'exclude');
@@ -151,7 +170,8 @@ export async function ensureWorktree(options: EnsureWorktreeOptions): Promise<Wo
   // own environment, where such a variable also sits.
   const env = gitEnv(options.env ?? process.env);
   // The project is the owner: a link on the way from it down to the card's checkout is refused.
-  const run = (args: readonly string[]) => git(args, { cwd: at, env, signal: options.signal, owner: projectPath });
+  const repoPlace = projectPlace(projectPath, repo);
+  const run = (args: readonly string[]) => git(args, { cwd: at, env, signal: options.signal, owner: projectPath, repo: repoPlace });
 
   // The key becomes a folder name. A segment that climbs out would put the checkout somewhere the
   // exclude does not cover, which is the thing conflict 17 exists to prevent.
@@ -385,7 +405,7 @@ export async function ensureWorktree(options: EnsureWorktreeOptions): Promise<Wo
   // Cleanup runs without the caller's signal: after an abort every further call through it would
   // reject at once and leave the half made worktree and the new branch behind for good.
   const undo = async () => {
-    const plain = { cwd: at, env };
+    const plain = { cwd: at, env, repo: repoPlace };
     // The state is read again here. Another call for the same key may have finished in between,
     // and deleting what that one created would be worse than the half made state being cleaned.
     let owned: readonly { path: string; branch: string | null }[];
@@ -421,6 +441,10 @@ export async function ensureWorktree(options: EnsureWorktreeOptions): Promise<Wo
       }
     }
   };
+
+  // A repository one folder down sits in the card's root folder, which git's wall does not open: only
+  // the checkout itself. So Nolzu makes the root first.
+  if (repo !== '.') makeFolders(projectPath, checkoutRoot(projectPath, key));
 
   const add = local
     ? ['worktree', 'add', target, branch]

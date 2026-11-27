@@ -89,7 +89,7 @@ const cardRepo = (): TempRepo => {
 };
 
 const commit = (made: TempRepo, message: string, include?: readonly string[], hooks?: boolean) =>
-  commitCard({ worktreePath: made.dir, message, include, env: made.env, hooks });
+  commitCard({ worktreePath: made.dir, repo: { project: made.dir, workTree: made.dir }, message, include, env: made.env, hooks });
 
 const hook = (made: TempRepo, body: string): void => {
   const at = join(made.dir, '.git', 'hooks', 'pre-commit');
@@ -156,7 +156,7 @@ it('commits exactly the ticked paths, tracked and new, and leaves an unticked ch
   made.write('new.txt', 'new\n');
   made.write('left.txt', 'left\n');
 
-  const result = await commitCard({ worktreePath: made.dir, message: 'feat(list): two files', only: ['a.txt', 'new.txt'], env: made.env });
+  const result = await commitCard({ worktreePath: made.dir, repo: { project: made.dir, workTree: made.dir }, message: 'feat(list): two files', only: ['a.txt', 'new.txt'], env: made.env });
 
   expect(result.ok).toBe(true);
   expect(made.run('show', '--name-only', '--format=', 'HEAD').trim().split('\n')).toEqual(['a.txt', 'new.txt']);
@@ -167,8 +167,8 @@ it('commits both paths of a ticked rename, and refuses an empty tick list before
   const made = cardRepo();
   made.run('mv', 'a.txt', 'renamed.txt');
 
-  expect(await commitCard({ worktreePath: made.dir, message: 'feat: none', only: [], env: made.env })).toEqual({ ok: false, reason: 'No file is ticked. Tick the files to commit, then commit.' });
-  const result = await commitCard({ worktreePath: made.dir, message: 'refactor: rename a', only: ['renamed.txt', 'a.txt'], env: made.env });
+  expect(await commitCard({ worktreePath: made.dir, repo: { project: made.dir, workTree: made.dir }, message: 'feat: none', only: [], env: made.env })).toEqual({ ok: false, reason: 'No file is ticked. Tick the files to commit, then commit.' });
+  const result = await commitCard({ worktreePath: made.dir, repo: { project: made.dir, workTree: made.dir }, message: 'refactor: rename a', only: ['renamed.txt', 'a.txt'], env: made.env });
 
   expect(result.ok).toBe(true);
   expect(made.run('status', '--porcelain').trim()).toBe('');
@@ -179,7 +179,7 @@ it('takes a ticked new file out of the index again when git refuses the commit',
   made.write('new.txt', 'new\n');
   hook(made, '#!/bin/sh\necho no >&2\nexit 1\n');
 
-  const result = await commitCard({ worktreePath: made.dir, message: 'feat: new', only: ['new.txt'], hooks: true, env: made.env });
+  const result = await commitCard({ worktreePath: made.dir, repo: { project: made.dir, workTree: made.dir }, message: 'feat: new', only: ['new.txt'], hooks: true, env: made.env });
 
   expect(result.ok).toBe(false);
   expect(made.run('status', '--porcelain').trim()).toBe('?? new.txt');
@@ -449,7 +449,8 @@ it('runs no hook from a folder the checkout names, as husky sets it up', async (
 it('runs the hook when the person turned hooks on for this commit', async () => {
   const made = cardRepo();
   made.write('a.txt', 'a\nchanged\n');
-  const mark = join(made.dir, '..', 'hook-ran');
+  // In the git folder: the hook runs inside the git wall, which allows the repository only.
+  const mark = join(made.dir, '.git', 'hook-ran');
   hook(made, `#!/bin/sh\ntouch "${mark}"\n`);
 
   const result = await commit(made, 'fix(list): change a', undefined, true);
@@ -481,7 +482,7 @@ it.each(['file', 'folder'] as const)('refuses a ticked folder whose .git is a %s
   const before = made.run('rev-parse', 'HEAD').trim();
 
   // The composer passes the ticked paths as `only`.
-  const result = await commitCard({ worktreePath: made.dir, message: 'feat: add the library', only: ['vendor-lib/'], env: made.env });
+  const result = await commitCard({ worktreePath: made.dir, repo: { project: made.dir, workTree: made.dir }, message: 'feat: add the library', only: ['vendor-lib/'], env: made.env });
 
   expect(result.ok).toBe(false);
   expect(existsSync(marker)).toBe(false);
@@ -515,7 +516,7 @@ const conflicted = (how: 'merge' | 'cherry-pick'): TempRepo => {
 
 it('ends a merge with one merge commit when every changed file is ticked, and leaves an unticked new file out', async () => {
   const made = conflicted('merge');
-  const result = await commitCard({ worktreePath: made.dir, message: 'merge: take main into the card', only: ['a.txt', 'o.txt'], env: made.env });
+  const result = await commitCard({ worktreePath: made.dir, repo: { project: made.dir, workTree: made.dir }, message: 'merge: take main into the card', only: ['a.txt', 'o.txt'], env: made.env });
   expect(result).toMatchObject({ ok: true });
   expect(made.run('rev-list', '--parents', '-n', '1', 'HEAD').trim().split(' ')).toHaveLength(3);
   expect(made.run('show', 'HEAD:a.txt')).toBe('a\nfrom main\nfrom other\n');
@@ -525,14 +526,14 @@ it('ends a merge with one merge commit when every changed file is ticked, and le
 it('takes the ticked files as they are in the folder, also when edited after the merge staged them', async () => {
   const made = conflicted('merge');
   made.write('o.txt', 'o\nedited after the merge\n');
-  const result = await commitCard({ worktreePath: made.dir, message: 'merge: with the later edit', only: ['a.txt', 'o.txt'], env: made.env });
+  const result = await commitCard({ worktreePath: made.dir, repo: { project: made.dir, workTree: made.dir }, message: 'merge: with the later edit', only: ['a.txt', 'o.txt'], env: made.env });
   expect(result).toMatchObject({ ok: true });
   expect(made.run('show', 'HEAD:o.txt')).toBe('o\nedited after the merge\n');
 });
 
 it('refuses a merge commit of some of its files, naming the unticked ones, and keeps the merge going', async () => {
   const made = conflicted('merge');
-  const result = await commitCard({ worktreePath: made.dir, message: 'merge: half', only: ['a.txt'], env: made.env });
+  const result = await commitCard({ worktreePath: made.dir, repo: { project: made.dir, workTree: made.dir }, message: 'merge: half', only: ['a.txt'], env: made.env });
   expect(result).toEqual({
     ok: false,
     reason: 'A merge is in progress, and git commits all of its changes at once. Tick every changed file (o.txt is not ticked), or end the merge with git merge --abort.',
@@ -542,7 +543,7 @@ it('refuses a merge commit of some of its files, naming the unticked ones, and k
 
 it('ends a cherry-pick the same way', async () => {
   const made = conflicted('cherry-pick');
-  const result = await commitCard({ worktreePath: made.dir, message: 'fix: take the other side', only: ['a.txt', 'o.txt'], env: made.env });
+  const result = await commitCard({ worktreePath: made.dir, repo: { project: made.dir, workTree: made.dir }, message: 'fix: take the other side', only: ['a.txt', 'o.txt'], env: made.env });
   expect(result).toMatchObject({ ok: true });
   expect(made.run('show', '--name-only', '--format=', 'HEAD').trim().split('\n').sort()).toEqual(['a.txt', 'o.txt']);
 });

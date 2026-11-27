@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { getSetting, resolveDataDir, writeSetting } from '@nolzu/core/node';
 import { type EngineName, isFakeMode, type McpRule, type McpRun } from '@nolzu/protocol';
-import { commitKnowledgeFiles, createKeychain, cursorRoot, git, gitEnv, type Keychain, mcpConfigProblem, mcpRemotes, mcpRunsFolder, mcpServers, type RunGit, restoreCursorMcp, runKeychain, worktreesFolder, writablePath } from '@nolzu/runner';
+import { projectPlace, commitKnowledgeFiles, createKeychain, cursorRoot, git, gitEnv, type Keychain, mcpConfigProblem, mcpRemotes, mcpRunsFolder, mcpServers, type RunGit, restoreCursorMcp, runKeychain, worktreesFolder, writablePath } from '@nolzu/runner';
 import { inTurn } from './manifest.ts';
 import { emptyEntry, entryProblem, MCP_FILE, type McpEntry, type McpList, mcpListText, parseMcpList, reservedName, type SecretKey, secretKeysOf, serversFor, urlWarning } from './mcp-list.ts';
 
@@ -90,7 +90,7 @@ const gitTop = async (run: RunGit): Promise<string> => (await run(['rev-parse', 
 export function commitMcpList(project: string | null, env: Record<string, string | undefined> = process.env): Promise<string | null> {
   if (project === null) return Promise.resolve(null);
   return inTurn(project, async () => {
-    const run: RunGit = (args) => git(args, { cwd: project, env: gitEnv(env as Record<string, string>) });
+    const run: RunGit = (args) => git(args, { cwd: project, env: gitEnv(env as Record<string, string>), repo: projectPlace(project) });
     if (!(await ownRepository(project, run))) return null;
     const changed = await run(['status', '--porcelain', '--', MCP_FILE]);
     if (changed.code !== 0 || changed.stdout.trim() === '') return null;
@@ -135,7 +135,7 @@ export function flushMcpCommit(project: string | null, env: Record<string, strin
 /** Whether the list has changes git has not committed, which the page says. */
 export async function listUncommitted(project: string | null, env: Record<string, string | undefined> = process.env): Promise<boolean> {
   if (project === null) return false;
-  const run: RunGit = (args) => git(args, { cwd: project, env: gitEnv(env as Record<string, string>) });
+  const run: RunGit = (args) => git(args, { cwd: project, env: gitEnv(env as Record<string, string>), repo: projectPlace(project) });
   if (!(await ownRepository(project, run))) return false;
   const changed = await run(['status', '--porcelain', '--', MCP_FILE]);
   return changed.code === 0 && changed.stdout.trim() !== '';
@@ -147,7 +147,7 @@ export async function listUncommitted(project: string | null, env: Record<string
  */
 export async function listShared(project: string | null, env: Record<string, string | undefined> = process.env): Promise<boolean> {
   if (project === null) return false;
-  const run: RunGit = (args) => git(args, { cwd: project, env: gitEnv(env as Record<string, string>) });
+  const run: RunGit = (args) => git(args, { cwd: project, env: gitEnv(env as Record<string, string>), repo: projectPlace(project) });
   if (!(await ownRepository(project, run))) return false;
   return (await run(['check-ignore', '-q', '--', MCP_FILE])).code !== 0;
 }

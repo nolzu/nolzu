@@ -4,7 +4,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { projectRepos } from '@nolzu/core';
 import { addNotification, deleteCardRows, epicOfTask, getSetting, relatedCards } from '@nolzu/core/node';
 import type { WorktreeRow } from '@nolzu/protocol';
-import { baseCommit, branchNameProblem, checkoutPath, git, gitEnv, isPlainName, listWorktrees, removeWorktree, repoFolder } from '@nolzu/runner';
+import { projectPlace, baseCommit, branchNameProblem, checkoutPath, git, gitEnv, isPlainName, listWorktrees, removeWorktree, repoFolder } from '@nolzu/runner';
 import { branchGoes, changedSince, type DeleteBranch, type DeleteFacts, deletePlan, type DeletePlan, type DeleteRepo, ignoredPaths, pickedUp, type SeenCheckout, seenOf } from './card-delete.ts';
 import { templateBranch } from './checkout.ts';
 import { cardFolder } from './files.ts';
@@ -265,7 +265,7 @@ export async function deleteCard(live: Live, key: string, body: unknown, env: En
         stays.push(`The branch ${repo.branch.name} stays, so its commits are not lost.`);
         continue;
       }
-      const cut = await git(['branch', '-D', '--', repo.branch.name], { cwd: repoFolder(project, repo.repo), env: gitEnv(plainEnv(env)) });
+      const cut = await git(['branch', '-D', '--', repo.branch.name], { cwd: repoFolder(project, repo.repo), env: gitEnv(plainEnv(env)), repo: projectPlace(project, repo.repo) });
       if (cut.code !== 0) failed.push(`The branch ${repo.branch.name} could not be deleted. ${cut.stderr.trim()}`);
     }
   }

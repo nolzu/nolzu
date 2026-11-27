@@ -42,6 +42,9 @@ jobs:
           sudo apt-get install -y -q bubblewrap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: pnpm test
+      # Nolzu's own git writes raced against a link swapped into .git, inside the bubblewrap wall. It
+      # fails when a walled write changed anything outside the repository.
+      - run: bash scripts/git-wall-race.sh 200
       - run: NOLZU_FAKE_AGENT=1 pnpm smoke
       - run: pnpm build
       - run: pnpm pack:check

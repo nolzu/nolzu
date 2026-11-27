@@ -132,7 +132,8 @@ export async function workspaceCommit(
 ): Promise<CommitResult> {
   const found = await fileOf(db, ask.repo, ask.paths, env, signal);
   if (!found.ok) return found;
-  return commitPaths({ folder: found.target.folder, message: ask.message, files: found.files, hooks: ask.hooks, env: gitEnv(env), signal });
+  const project = getSetting(db, 'projectPath') ?? found.target.folder;
+  return commitPaths({ folder: found.target.folder, repo: { project, workTree: found.target.folder }, message: ask.message, files: found.files, hooks: ask.hooks, env: gitEnv(env), signal });
 }
 
 /** Pushes the current branch of one folder to its upstream, only with the confirmation. */
@@ -150,7 +151,7 @@ export async function workspacePush(
   const state = await readRepo({ folder: target.folder, skip: target.skip, env: gitEnv(env), signal });
   if (!state.ok) return { ok: false, reason: `${target.name}: ${state.reason}` };
   const forGit = await remoteEnv(env, (args) => git(args, { cwd: target.folder, env: gitEnv(env) }));
-  return pushUpstream({ folder: target.folder, hooks, env: forGit, signal: stopAfter(signal) });
+  return pushUpstream({ folder: target.folder, repo: { project: getSetting(db, 'projectPath') ?? target.folder, workTree: target.folder }, hooks, env: forGit, signal: stopAfter(signal) });
 }
 
 // The commit request's body: { repo, message, paths, hooks }. Hooks are on only for a literal true.

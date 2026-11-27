@@ -3,7 +3,7 @@ import { join, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { isFolderName, repoKnowledgePath } from '@nolzu/core';
 import { cardRepos, getSetting } from '@nolzu/core/node';
-import { git, gitEnv, type GitResult, ignoredPaths, type RunGit, somePaths } from '@nolzu/runner';
+import { projectPlace, git, gitEnv, type GitResult, ignoredPaths, type RunGit, somePaths } from '@nolzu/runner';
 import { forgetInRoot, inTurn } from './manifest.ts';
 import { cardsWithCheckout, listRefusal, removeProjectRepo } from './projects.ts';
 import { remoteEnv } from './publish.ts';
@@ -95,7 +95,7 @@ async function commitsLeft(run: RunGit, at: string, path: string, env: Env): Pro
 
   // A release tag whose branch was deleted on the host is on no remote branch, but the host still has
   // it. Asked now and not read off the clone, because a tag deleted on the host stays in every clone.
-  const ask = git(['ls-remote', '--tags', 'origin'], { cwd: at, env: await remoteEnv(env, run), signal: AbortSignal.timeout(TAGS_MS) });
+  const ask = git(['ls-remote', '--tags', 'origin'], { cwd: at, env: await remoteEnv(env, run), repo: { project: at, workTree: at }, signal: AbortSignal.timeout(TAGS_MS) });
   const remote = await tagCommits(ask.catch((error: Error) => ({ code: 1, stdout: '', stderr: error.message })));
   if ('problem' in remote) {
     const tags = holding.map(([name]) => name);
@@ -160,7 +160,7 @@ async function submoduleGitDir(project: string, at: string, path: string, env: E
 // deinit -f throws away changes in the folder, which the checks have shown there are none of. With
 // no dir the folder was empty, and its history, if it has one, stays where git keeps it.
 async function dropSubmodule(project: string, path: string, dir: string | null, env: Env): Promise<string | null> {
-  const run: RunGit = (args) => git(args, { cwd: project, env: gitEnv(env as Record<string, string>) });
+  const run: RunGit = (args) => git(args, { cwd: project, env: gitEnv(env as Record<string, string>), repo: projectPlace(project) });
   const spec = `:(literal)${path}`;
   const deinit = await run(['submodule', 'deinit', '-f', '-q', '--', spec]);
   if (deinit.code !== 0) return `git could not deinit the submodule ${path}. ${deinit.stderr.trim()}`;

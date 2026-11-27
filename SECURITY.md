@@ -106,8 +106,8 @@ on macOS, bubblewrap on Linux. These are the promises it makes:
   rest of the disk stays read-only.
 - git writes some files in those git folders by name, through a link: `COMMIT_EDITMSG`,
   `FETCH_HEAD`, `MERGE_MSG`, `ORIG_HEAD`, the reflogs under `logs`, `packed-refs` and `gc.log` among
-  them. A link a run left there would have Nolzu's next commit, fetch or pull, outside the wall,
-  write the file it points to. Nolzu checks for this in three ways. On macOS the wall refuses a new
+  them. A link a run left there would have Nolzu's next fetch or pull, which run without a wall, or
+  a commit on a machine where no wall can start, write the file it points to. Nolzu checks for this in three ways. On macOS the wall refuses a new
   symbolic link and a new hard link in the writable git places (all but `objects` and `lfs`), and a
   link file renamed in. After every Implement run, under any wall, Nolzu looks in the card's own git
   folder, and in the shared git folder at each entry at its top that is not a folder, and in `refs`,
@@ -147,11 +147,77 @@ on macOS, bubblewrap on Linux. These are the promises it makes:
   captured from the login shell, cannot point Nolzu's git at another repository's folders or have it
   write a trace file. `GIT_CONFIG_GLOBAL`, `GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_ASKPASS`, `GIT_EDITOR`
   and `GIT_PAGER` stay: they come from your own environment, as your choice.
-- These checks look before git writes, not while it writes. So there is a gap: a run that is live at
-  the same time in the same repository, such as another card's run, or a process a run left behind,
-  can swap a folder between Nolzu's check and git's write. The macOS wall refuses a new link but not
-  a folder renamed into place with a link inside, and on Linux the wall has no rule for links. Such a
-  swap can still have Nolzu's git write the file a link points to.
+- The checks above look before git writes, not while it writes, so a run that is live at the same
+  time in the same repository (another card's run, or a process a run left behind) could swap a
+  folder with a link inside between the check and the write. So Nolzu's own local git writes inside
+  a wall of its own. Each git command that writes (the table above lists them: a commit, an add, a
+  branch, a checkout, a reset, a merge, a worktree add or remove, and the rest) names its
+  repository from Nolzu's record: the project, one of its repositories, a card's checkout under
+  `worktrees`, or the repository of the knowledge folder. Before git starts, Nolzu checks that the
+  work tree and the git folders are where the record says, with no link on the way down from the
+  project folder, that the `.git` file and the `commondir` file name them, and that git's own
+  answer agrees. A mismatch refuses the command with a sentence, and every later write in that
+  repository is refused with the same sentence until Nolzu starts again (there is no button to clear
+  it yet). A folder that is simply not there is refused without that mark. Then git is pinned to the
+  checked folders with `GIT_DIR`, `GIT_WORK_TREE` and `GIT_COMMON_DIR`, and runs inside a wall
+  (`sandbox-exec` on macOS, bubblewrap on Linux) that allows writes only in the work tree, its own
+  git folder, the shared git folder, a temp folder of the call's own (git and its programs get it
+  as `TMPDIR`, and it is removed after the call; the system temp folders stay closed), a folder the
+  command makes, such as a new checkout, and the checkout a `worktree remove` deletes, which must be
+  in the project's `worktrees` folder. For a card on several repositories, Nolzu makes the card's
+  folder in `worktrees` itself before git adds a checkout in it, refusing a link or a file on the
+  way. Inside the git folders the wall keeps closed what names the programs git runs and where the
+  repository is: the shared `config` and `config.worktree`, the checkout's own `config.worktree`,
+  the `hooks` folder, `info/attributes`, the shared folder's `commondir`, and for a card's checkout
+  its `.git` file and its own `commondir` and `gitdir`. Only the commands that must write the
+  config get it back (`config` and `remote` when they write, `branch`, `init`, `submodule` and
+  `worktree add`), and Nolzu refuses with a sentence to run any of them with hooks on. Every program
+  git starts runs inside the same wall: a hook when you ticked Run hooks, a filter, an editor, a
+  signer. When the repository signs its commits with gpg (`commit.gpgsign` with `gpg.format` unset,
+  `openpgp` or `x509`), a commit and a merge may also write in `~/.gnupg`, or in `GNUPGHOME`, and on
+  Linux in the agent's socket folder (`$XDG_RUNTIME_DIR/gnupg` or `/run/user/<uid>/gnupg`), but never
+  in gpg's config files there (`*.conf`, and the ones named for a version, such as `gpg.conf-2` or
+  `gpg-agent.conf-2.4`), which can name a program gpg starts later. Before such a call Nolzu starts
+  gpg's agent itself, outside the wall (`gpgconf --launch gpg-agent`), so the agent the signer uses
+  is not one started inside the wall. An ssh signature opens no gpg folder. Reads stay open, so your git config, keys and credential helpers still work. A
+  project's `.git` is recorded the first time Nolzu opens the project: the plain folder, or where a
+  link or a file that names a git folder elsewhere leads, which is your own setup. Nolzu's git
+  writes there, and refuses with a sentence once it leads anywhere else, so a plain `.git` later
+  swapped for a link is refused too. The repository the knowledge folder is in is recorded the same
+  way, when the knowledge folder is set or first used, and a write there is refused once git finds
+  the folder in another repository, such as one a run made inside it. `scripts/git-wall-race.sh`
+  races a commit and a worktree add against a process that swaps `.git/logs` for a folder with links
+  inside, and for a link to a folder outside the repository, 500 times each, in folders outside the
+  system temp folder. On macOS the writes without the wall changed the folder outside in every case,
+  and the walled writes changed nothing outside. The script fails when a case tested nothing: no
+  counts from the writer, no escape without the wall, or no walled call that finished. The limits:
+  the wall goes by path, so it does not stop a write through a file that already has a second name
+  (a hard link) in the folders it allows, and git does write in place through one (a commit writes
+  `COMMIT_EDITMSG`, a merge appends to `logs/HEAD`). On macOS a walled process cannot make such a
+  second name of a file outside what it may write (measured: `ln` is refused), so a walled run cannot
+  plant one; on Linux bubblewrap's separate mounts should refuse a link across them, which is not
+  measured. The open case is a file that had a second name inside a run's write set before.
+  bubblewrap holds only paths that are there, so on Linux, before a walled write, Nolzu makes the
+  shared git folder's `hooks` folder if it is missing and holds it read-only, makes its `info`
+  folder if it is missing and holds all of it read-only (a commit, an
+  add, a branch, a checkout, a merge, a reset, a restore, `update-ref` and a worktree add and remove
+  all worked with it read-only, measured on macOS), and makes each `config.worktree` as an empty file, which git
+  reads as no settings, and holds it read-only. A `commondir` in the shared git folder and a new gpg
+  config file still cannot be held there. So on both systems, after every write, Nolzu looks for a
+  `commondir` in the shared git folder, a `config.worktree`, an `info/attributes`, an entry in the
+  shared `hooks` folder and a gpg config file that were not there before the call; it removes one it finds, fails the call with a sentence
+  and marks the repository. Between the write and that look, a git command Nolzu runs at the same
+  moment in that repository could still read it. Network git in a repository Nolzu has a record of
+  (a card's push and the pull after a refused push, the Workspace page's push, the fetch of a pull
+  request's head, the `ls-remote` before removing a repository) is checked and pinned the same way
+  as a write, so a planted `commondir` or `.git` refuses it rather than leading it to another
+  config. It still runs without the wall, as do the clone that adds a repository and gh's own push
+  when Nolzu makes a repository on GitHub, which have no record to check. So do the git commands
+  that only read, such as `status` and `diff`. Where no wall can start (Linux without bubblewrap or
+  user namespaces, or Nolzu inside another sandbox), Nolzu's git writes as before, with the checks,
+  the pins and the look after the call but no wall, and
+  Settings, Wall says so. On Linux the wall is proven by the tests in CI only, and a folder git is
+  about to make is opened as the nearest folder above it that is there, which is inside the project.
 - QA works on a throwaway copy of the checkout, so the project's checks can write their caches
   there. The real checkout stays read-only, and the copy is deleted after the run.
 - No run, Implement included, can read `~/.ssh`, `~/.aws`, `~/.gnupg`, the project's `.env` files
@@ -209,7 +275,9 @@ on macOS, bubblewrap on Linux. These are the promises it makes:
   knowledge commit after a run, the commit and the push on the Workspace page, and every checkout
   and ref update Nolzu makes. The commit box, the push dialog and the Workspace page say so, and
   their Run hooks tick turns the hooks on for that one press, off by
-  default. The first commit of a new workspace runs your hooks, since no run has written there
+  default. With the tick on, the hooks of a commit run inside the wall around Nolzu's own git
+  (below), so a hook's write outside the repository and its own temp folder, or in the
+  repository's config or hooks, is refused; a push's hooks run without it. The first commit of a new workspace runs your hooks, since no run has written there
   yet. A clone runs with the hooks off and the same settings as every other git command, so a
   hook a template folder in your git config copies into the new repository does not run during
   the clone. A repository that uses Git LFS needs Run hooks on the push, because LFS uploads its
@@ -324,7 +392,8 @@ its card is not checked. A later read-only run of the card that compares clean c
 
 On Linux with no bubblewrap, or with user namespaces blocked, the wall cannot start. Claude Code
 still runs every phase there, held by its guard hook, and Codex runs under its own sandbox. In
-both cases the run log says the secret files are not hidden. Cursor runs Implement
+both cases the run log says the secret files are not hidden. Nolzu's own git then writes without
+its wall too, as Settings, Wall says. Cursor runs Implement
 only, and a read-only phase is refused with the check that failed. The
 [engine notes](docs/engines/README.md#walls) say how to install bubblewrap or allow user
 namespaces.
@@ -333,7 +402,7 @@ Some things are out of the wall's reach, and that is how Nolzu works, not a hole
 open in every run, so a run can still cause a side effect elsewhere, such as a `curl -X POST`, a
 `gh pr create` or an MCP tool that writes to a ticket system. A run can write anything inside the
 folders it may write. A hook manager file a run wrote in the checkout still fires when you run git
-there yourself, or when you tick Run hooks. A git filter or merge driver you set up in your own git
+there yourself, or when you tick Run hooks (a commit's hooks then run inside the git wall). A git filter or merge driver you set up in your own git
 config runs outside the wall when Nolzu's git reads a file that `.gitattributes` sends to it, and a
 run can write that file in the checkout. "Do not fix the code" in QA and "stay in the method" in
 every phase are prompt rules, not walls.

@@ -1,7 +1,9 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createProject, openDatabase, writeSetting } from '@nolzu/core/node';
+import { createProject, getSetting, openDatabase, writeSetting } from '@nolzu/core/node';
+import { pinGitLink, repoPlaces } from '@nolzu/runner';
 import { afterAll, expect, it, vi } from 'vitest';
 
 vi.mock('./hub-link.ts', async (real) => ({ ...(await real<object>()), dialHubAgain: () => false, hubStatus: () => 'closed' }));
@@ -11,7 +13,7 @@ vi.mock('./hub-link.ts', async (real) => ({ ...(await real<object>()), dialHubAg
 const dir = mkdtempSync(join(tmpdir(), 'nolzu-two-projects-'));
 process.env.NOLZU_DATA_DIR = dir;
 
-const { database } = await import('./db.ts');
+const { database, pinProjectGit } = await import('./db.ts');
 const { createLoop, loop } = await import('./loop.ts');
 const { load } = await import('../routes/+layout.server.ts');
 const { POST } = await import('../routes/api/cards/+server.ts');
@@ -86,6 +88,56 @@ it('gives the first project one loop when its id comes before any loop knew it',
     expect(createLoop(fresh, env)).toBe(named);
     named.close();
   } finally {
+    rmSync(fresh, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+// A plain .git folder is recorded too, so one later swapped for a link is refused, also after a restart.
+it("records a plain .git folder, and refuses a link that later takes its place", async () => {
+  const fresh = mkdtempSync(join(tmpdir(), 'nolzu-git-plain-'));
+  const project = join(fresh, 'project');
+  execFileSync('git', ['init', '-q', '-b', 'main', project]);
+  const elsewhere = join(fresh, 'elsewhere.git');
+  execFileSync('git', ['init', '-q', '--bare', elsewhere]);
+  const db = openDatabase(join(fresh, 'data'));
+  try {
+    writeSetting(db, 'projectPath', project);
+    pinProjectGit(db);
+    expect(getSetting(db, 'gitLink')).toBe(realpathSync(join(project, '.git')));
+    rmSync(join(project, '.git'), { recursive: true });
+    symlinkSync(elsewhere, join(project, '.git'));
+    // Opened again, as after a restart: the record stays the plain folder.
+    pinProjectGit(db);
+    expect(getSetting(db, 'gitLink')).toBe(realpathSync(project) + '/.git');
+    expect(await repoPlaces({ project, workTree: project }, process.env)).toEqual({ ok: false, reason: expect.stringContaining('where it led when Nolzu first opened the project') });
+  } finally {
+    pinGitLink(project, null);
+    db.close();
+    rmSync(fresh, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+// A project whose .git is a link to a git folder elsewhere, the person's own setup: where it leads is
+// recorded when Nolzu first opens the project, and only that place is allowed after.
+it("records where the project's .git leads the first time, and keeps that record", async () => {
+  const fresh = mkdtempSync(join(tmpdir(), 'nolzu-git-link-'));
+  const project = join(fresh, 'project');
+  const kept = join(fresh, 'kept.git');
+  mkdirSync(project);
+  execFileSync('git', ['init', '-q', '--bare', kept]);
+  symlinkSync(kept, join(project, '.git'));
+  const db = openDatabase(join(fresh, 'data'));
+  try {
+    writeSetting(db, 'projectPath', project);
+    pinProjectGit(db);
+    expect(getSetting(db, 'gitLink')).toBe(realpathSync(kept));
+    rmSync(join(project, '.git'));
+    symlinkSync(join(fresh, 'elsewhere.git'), join(project, '.git'));
+    pinProjectGit(db);
+    expect(getSetting(db, 'gitLink')).toBe(realpathSync(kept));
+  } finally {
+    pinGitLink(project, null);
+    db.close();
     rmSync(fresh, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

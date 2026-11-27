@@ -4,7 +4,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { projectRepos } from '@nolzu/core';
 import { getSetting, reposOfCard } from '@nolzu/core/node';
 import { type ChangeGroup, type Changes, hasUncommitted, hasWork } from '@nolzu/protocol';
-import { cardCommits, cardDiff, commitCard, commitDiff, diffStat, draftedMessage, fileTree, filePatch, checkoutPath, git, gitEnv, isPlainName, listWorktrees, uncommittedDiff, unquotePath, type CommitResult, type FilePatch, type PushResult } from '@nolzu/runner';
+import { cardCommits, cardPlace, cardDiff, commitCard, commitDiff, diffStat, draftedMessage, fileTree, filePatch, checkoutPath, git, gitEnv, isPlainName, listWorktrees, uncommittedDiff, unquotePath, type CommitResult, type FilePatch, type PushResult } from '@nolzu/runner';
 import { commitMessagePrompt } from '@nolzu/skills';
 import { projectName } from './app-header.ts';
 import { cardRepo, noCheckout } from './checkout.ts';
@@ -366,7 +366,7 @@ export async function commitFor(
     if (other !== undefined) return { ok: false, reason: `${path} is in the checkout of ${other}, so it is committed in that group.` };
   }
   try {
-    return await commitCard({ worktreePath: at.real, message, include, ...(only === undefined ? {} : { only }), hooks, env: env as Record<string, string>, signal });
+    return await commitCard({ worktreePath: at.real, repo: cardPlace(at.project, key, repo), message, include, ...(only === undefined ? {} : { only }), hooks, env: env as Record<string, string>, signal });
   } catch (error) {
     return failed(error);
   }

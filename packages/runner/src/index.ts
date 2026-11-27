@@ -26,6 +26,8 @@ export * from './git/commit.ts';
 export * from './git/diff.ts';
 export * from './git/env.ts';
 export * from './git/exec.ts';
+export * from './git/git-wall.ts';
+export * from './git/places.ts';
 export * from './git/list.ts';
 export * from './git/porcelain.ts';
 export * from './git/read-only-check.ts';

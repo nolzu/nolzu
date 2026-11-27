@@ -4,6 +4,7 @@ import { basename, dirname, join, relative, sep } from 'node:path';
 import type { ReadOnlyBreak } from '@nolzu/protocol';
 import { PATCH_CAP_BYTES } from './diff.ts';
 import { git } from './exec.ts';
+import { cardPlace, type ExpectedPlaces } from './places.ts';
 import { parseWorktrees } from './porcelain.ts';
 import { checkoutPath, isPlainName, repoFolder } from './worktree.ts';
 import { gitDirs } from '../wall-detect.ts';
@@ -297,11 +298,11 @@ async function changeText(before: GitSnapshot, change: GitChange, env: Record<st
 // A file that was already changed or untracked before the run has no copy to come back from, so it
 // is left and named. Only the card's own branch is put back: every other ref lives in the person's
 // repository, where a branch, tag or stash they make while the run goes would read as the run's.
-async function restore(before: GitSnapshot, change: GitChange, env: Record<string, string>): Promise<{ undone: string[]; left: string[] }> {
+async function restore(before: GitSnapshot, change: GitChange, env: Record<string, string>, place: ExpectedPlaces): Promise<{ undone: string[]; left: string[] }> {
   const undone: string[] = [];
   const left: string[] = [];
   const say = async (args: string[], done: string): Promise<void> => {
-    const result = await git(args, { cwd: before.root, env });
+    const result = await git(args, { cwd: before.root, env, repo: place });
     if (result.code === 0) undone.push(done);
     else left.push(`${done.replace(/\.$/, '')} failed: ${result.stderr.trim()}`);
   };
@@ -333,7 +334,7 @@ async function restore(before: GitSnapshot, change: GitChange, env: Record<strin
     } else {
       // `reset`, not `rm --cached`, which runs git inside a folder whose `.git` is a file. Literal, so a
       // name the run chose that holds a star means that file only.
-      await git(['reset', '-q', '--', `:(literal)${file.path.replace(/\/+$/, '')}`], { cwd: before.root, env });
+      await git(['reset', '-q', '--', `:(literal)${file.path.replace(/\/+$/, '')}`], { cwd: before.root, env, repo: place });
       rmSync(join(before.root, file.path), { force: true, recursive: true });
       undone.push(`Removed ${file.path}, which the run made.`);
     }
@@ -363,7 +364,9 @@ export async function gitAfter(before: readonly GitSnapshot[], options: GitAfter
     if (change === null) continue;
     texts.push(await changeText(one, change, options.env, options.project ?? null));
     if (own !== null && inside(one.root, own)) {
-      const done = await restore(one, change, options.env);
+      // A card checkout, `<key>` or `<key>/<repo>` in the checkouts folder, which sits in the project.
+      const [key = '', repo = '.'] = relative(own, one.root).split(sep);
+      const done = await restore(one, change, options.env, cardPlace(dirname(own), key, repo));
       undone.push(...done.undone);
       left.push(...done.left);
     } else {

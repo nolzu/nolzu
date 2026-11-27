@@ -2129,11 +2129,15 @@ export function createLoop(dataFolder: string, env: NodeJS.ProcessEnv = process.
     if (getSetting(db, 'knowledgeDir') === null) mkdirSync(folder, { recursive: true });
     // Held to the folder's repository as it is before the run, and `forPatch` stops reading past
     // the cap, the way `filePatch` does for a card.
-    const { run, forPatch, sweep } = await knowledgeGit(folder, gitEnv(env), signal);
+    // Held to the repository recorded when the knowledge folder was first used, recorded now if none is.
+    const recorded = getSetting(db, 'knowledgeRepo');
+    const { run, forPatch, sweep, place } = await knowledgeGit(folder, gitEnv(env), signal, recorded);
+    if (place?.refuse !== undefined) throw new Error(place.refuse);
     const check = await checkKnowledgeDir(folder, { projectPath: project, run, repos: reposNow().map((repo) => repo.path) });
     // Before the engine, so a folder nothing can be committed from stops the run rather than
     // letting it write knowledge that stays where nobody sees it.
     if (!check.ok) throw new Error(check.reason ?? `The knowledge folder ${folder} cannot be used.`);
+    if (recorded === null && place !== undefined) writeSetting(db, 'knowledgeRepo', place.workTree);
     return { run, forPatch, sweep, before: rememberedBefore(job) ?? (await knowledgeState(run)) };
   };
 

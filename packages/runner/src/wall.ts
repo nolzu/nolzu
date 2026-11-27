@@ -38,6 +38,9 @@ export interface WallSpec {
   // hard link there. macOS refuses a new link and a link file renamed in; a folder renamed in with a
   // link inside is not refused, and Linux has no rule, so the check after the run is what holds.
   noLinks?: readonly string[];
+  // False leaves the system temp folders closed too, for a caller that hands the process a temp folder
+  // of its own in `writable`. Left out, they stay open, as every run needs them on macOS.
+  systemTemp?: boolean;
   // Linux only: unix sockets a run may not connect to, such as Docker's, whose daemon can write
   // anywhere. A file rule does not stop a connect, so bwrap covers each with /dev/null or a tmpfs.
   // macOS closes them by name in the profile instead (`DAEMON_SOCKET`).
@@ -64,15 +67,8 @@ export const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 
 // Paths every process writes. The temp folders are where `$TMPDIR` points on macOS. /dev/ptmx makes
 // a new terminal.
-const ALWAYS_WRITABLE = [
-  '(literal "/dev/null")',
-  '(literal "/dev/ptmx")',
-  '(literal "/dev/tty")',
-  '(literal "/dev/dtracehelper")',
-  '(subpath "/dev/fd")',
-  '(subpath "/private/tmp")',
-  '(subpath "/private/var/folders")',
-];
+const ALWAYS_WRITABLE = ['(literal "/dev/null")', '(literal "/dev/ptmx")', '(literal "/dev/tty")', '(literal "/dev/dtracehelper")', '(subpath "/dev/fd")'];
+const SYSTEM_TEMP = ['(subpath "/private/tmp")', '(subpath "/private/var/folders")'];
 
 // Docker's and Podman's sockets wherever they live: Docker Desktop, OrbStack, Colima, Rancher Desktop,
 // Lima and a Podman machine each keep theirs somewhere else, some under the temp folder. Seatbelt
@@ -102,7 +98,7 @@ export function seatbeltProfile(spec: WallSpec): string {
   // The last matching rule wins in SBPL, so the order below is the meaning: deny every write,
   // open the allowed places, then close the hidden and write-denied paths inside them again.
   const lines = ['(version 1)', '(allow default)', '(deny file-write* (subpath "/"))'];
-  lines.push(`(allow file-write* ${ALWAYS_WRITABLE.join(' ')})`);
+  lines.push(`(allow file-write* ${[...ALWAYS_WRITABLE, ...(spec.systemTemp === false ? [] : SYSTEM_TEMP)].join(' ')})`);
   // A terminal opens only to the run that made it: macOS gives the maker this extension, and the run
   // may not issue it to itself. Another window's terminal is neither read nor written. `revoke` hangs
   // up a device with neither, and a run needs it for no device but its own terminal.
@@ -201,6 +197,7 @@ function cleaned(spec: WallSpec, map: (path: string) => string): WallSpec | { re
     sockets: fix(spec.sockets ?? []),
     reopened: fix(spec.reopened ?? []),
     noLinks: fix(spec.noLinks ?? []),
+    ...(spec.systemTemp === undefined ? {} : { systemTemp: spec.systemTemp }),
   };
 }
 

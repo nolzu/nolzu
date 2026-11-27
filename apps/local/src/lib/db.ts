@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { FIRST_PROJECT, getSetting, openDatabase, openMachine, openProject, type RegisteredProject, registeredProjects, resolveDataDir } from '@nolzu/core/node';
+import { FIRST_PROJECT, getSetting, openDatabase, openMachine, openProject, type RegisteredProject, registeredProjects, resolveDataDir, writeSetting } from '@nolzu/core/node';
+import { type ExpectedPlaces, gitFolderOf, knowledgePlace, pinGitLink } from '@nolzu/runner';
 import { activeProject } from './display.ts';
 
 // The project that stands in for the first one, by data folder, once the first could not open.
@@ -77,18 +78,51 @@ export function chosenProject(db: DatabaseSync, asked?: number): RegisteredProje
 // this would fail rather than open the real database.
 export function database(project?: number): DatabaseSync {
   const dataDir = resolveDataDir(process.env);
-  first ??= openFirstThatOpens(dataDir, (id) => {
-    const db = id === undefined ? openDatabase(dataDir) : openProject(dataDir, id);
-    return { db, id: id ?? registeredProjects(db).find((one) => one.file === FIRST_PROJECT)!.id };
-  });
+  if (first === null) {
+    first = openFirstThatOpens(dataDir, (id) => {
+      const db = id === undefined ? openDatabase(dataDir) : openProject(dataDir, id);
+      return { db, id: id ?? registeredProjects(db).find((one) => one.file === FIRST_PROJECT)!.id };
+    });
+    pinProjectGit(first.db);
+  }
   const chosen = chosenProject(first.db, project);
   if (chosen.id === first.id) return first.db;
   let db = others.get(chosen.id);
   if (db === undefined) {
     db = openProject(dataDir, chosen.id);
     others.set(chosen.id, db);
+    pinProjectGit(db);
   }
   return db;
+}
+
+/**
+ * Where the project's `.git` leads, recorded the first time Nolzu opens the project: the plain folder,
+ * or where a link or a file that names a git folder elsewhere leads. Held for Nolzu's git, which then
+ * writes there and refuses once it leads anywhere else, so a plain `.git` later swapped for a link is
+ * refused too.
+ */
+export function pinProjectGit(db: DatabaseSync): void {
+  const project = getSetting(db, 'projectPath');
+  if (project === null) return;
+  let led = getSetting(db, 'gitLink');
+  if (led === null) {
+    led = gitFolderOf(project);
+    if (led !== null) writeSetting(db, 'gitLink', led);
+  }
+  pinGitLink(project, led);
+}
+
+/**
+ * The repository of the knowledge folder for a git write there, held to the one recorded when the
+ * knowledge folder was set or first used: recorded now when nothing is, and refused on every write
+ * when git names another one (`knowledgePlace`).
+ */
+export async function knowledgeRepo(db: DatabaseSync, folder: string, env: Record<string, string>): Promise<ExpectedPlaces | undefined> {
+  const recorded = getSetting(db, 'knowledgeRepo');
+  const place = await knowledgePlace(folder, env, recorded);
+  if (recorded === null && place !== undefined && place.refuse === undefined) writeSetting(db, 'knowledgeRepo', place.workTree);
+  return place;
 }
 
 // A project New project took back. A page load may have opened it while its Add waited on git, and

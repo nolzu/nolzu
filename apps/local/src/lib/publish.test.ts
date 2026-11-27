@@ -416,9 +416,11 @@ describe('commit and push', () => {
   it('skips the commit and push hooks unless Run hooks is ticked for that press', async () => {
     const hooks = join(dir, 'hooks');
     mkdirSync(hooks);
-    for (const name of ['pre-commit', 'pre-push']) writeFileSync(join(hooks, name), `#!/bin/sh\necho ${name} >> "${join(dir, 'ran')}"\n`, { mode: 0o755 });
+    // The list is kept in the shared git folder: a commit's hook runs inside the git wall, which allows the repository only.
+    const list = join(project, '.git', 'ran');
+    for (const name of ['pre-commit', 'pre-push']) writeFileSync(join(hooks, name), `#!/bin/sh\necho ${name} >> "${list}"\n`, { mode: 0o755 });
     git(project, 'config', 'core.hooksPath', hooks);
-    const ran = () => (existsSync(join(dir, 'ran')) ? readFileSync(join(dir, 'ran'), 'utf8').trim().split('\n') : []);
+    const ran = () => (existsSync(list) ? readFileSync(list, 'utf8').trim().split('\n') : []);
 
     expect((await commitAndPush(db, 'APP-1', true, { message, include: ['search.ts'] }, env)).ok).toBe(true);
     expect(ran()).toEqual([]);

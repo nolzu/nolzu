@@ -27,7 +27,7 @@ const withRemote = (): TempRepo => {
 };
 
 const push = (made: TempRepo, over: Record<string, unknown> = {}) =>
-  pushBranch({ worktreePath: made.dir, branch: 'APP-1-work', remote: 'origin', env: made.env, ...over });
+  pushBranch({ worktreePath: made.dir, repo: { project: made.dir, workTree: made.dir }, branch: 'APP-1-work', remote: 'origin', env: made.env, ...over });
 
 it('says exactly what a push would do, for an https remote', () => {
   const said = pushConfirmation('APP-1-work', 'origin', 'https://github.com/nolzu/nolzu.git');

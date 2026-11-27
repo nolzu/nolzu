@@ -3,7 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { withoutAttribution } from '@nolzu/core';
 import { cardPullRows } from '@nolzu/core/node';
 import type { CompareUrl } from '@nolzu/protocol';
-import { compareUrl, gitEnv, readCardText, parseRemoteUrl, pullBranch, type BranchPullResult, pushBranch, pushConfirmation, withoutCredentials, type PushResult } from '@nolzu/runner';
+import { compareUrl, type ExpectedPlaces, gitEnv, readCardText, parseRemoteUrl, pullBranch, type BranchPullResult, pushBranch, pushConfirmation, withoutCredentials, type PushResult } from '@nolzu/runner';
 import { checkoutOf } from './checkout.ts';
 import { markStep } from './coach.ts';
 import { cardFolder } from './files.ts';
@@ -117,7 +117,7 @@ export async function pushFor(
   if (!confirmed) return { ok: false, reason: 'A push needs the confirmation first. Nothing was sent.' };
   const ready = await remoteFor(db, key, env, 'push', repo);
   if (!ready.ok) return ready;
-  const pushed = await pushBranch({ worktreePath: ready.path, branch: ready.branch, remote: ready.remote, hooks, env: ready.env, signal: stopAfter(signal) });
+  const pushed = await pushBranch({ worktreePath: ready.path, repo: ready.place, branch: ready.branch, remote: ready.remote, hooks, env: ready.env, signal: stopAfter(signal) });
   // A push that went is the last step of Getting started.
   if (pushed.ok) markStep(db, 'push');
   return pushed;
@@ -133,7 +133,7 @@ async function remoteFor(
   env: Record<string, string | undefined>,
   what: 'push' | 'pull',
   repo: string,
-): Promise<{ ok: true; path: string; branch: string; remote: string; env: Record<string, string> } | { ok: false; reason: string }> {
+): Promise<{ ok: true; path: string; branch: string; remote: string; env: Record<string, string>; place: ExpectedPlaces } | { ok: false; reason: string }> {
   const state = (db.prepare('SELECT state FROM cards WHERE key = ?').get(key) as { state: string } | undefined)?.state;
   if (state === 'queued' || state === 'running') return { ok: false, reason: `${key} is ${state}, and its run writes into this checkout. ${what === 'push' ? 'Push' : 'Pull'} once the run ends.` };
   const at = await checkoutOf(db, key, env, what, repo);
@@ -142,7 +142,7 @@ async function remoteFor(
   if (!found.ok || found.remote === null) {
     return { ok: false, reason: `${owner(repo)} has no remote, so there is nowhere to ${what === 'push' ? 'push' : 'pull from'}. Add one with git remote add, then try again.` };
   }
-  return { ok: true, path: at.path, branch: at.branch, remote: found.remote.name, env: await remoteEnv(env, at.run) };
+  return { ok: true, path: at.path, branch: at.branch, remote: found.remote.name, env: await remoteEnv(env, at.run), place: at.place };
 }
 
 // ssh asks its questions on the terminal the app was started from, where nobody looks: a new host key
@@ -161,5 +161,5 @@ export async function remoteEnv(env: Record<string, string | undefined>, run: (a
 export async function pullFor(db: DatabaseSync, key: string, env: Record<string, string | undefined> = process.env, signal?: AbortSignal, repo = '.'): Promise<BranchPullResult> {
   const ready = await remoteFor(db, key, env, 'pull', repo);
   if (!ready.ok) return { ok: false, reason: ready.reason, conflicts: [] };
-  return pullBranch({ worktreePath: ready.path, branch: ready.branch, remote: ready.remote, env: ready.env, signal: stopAfter(signal) });
+  return pullBranch({ worktreePath: ready.path, repo: ready.place, branch: ready.branch, remote: ready.remote, env: ready.env, signal: stopAfter(signal) });
 }

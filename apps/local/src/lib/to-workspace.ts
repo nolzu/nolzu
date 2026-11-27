@@ -5,6 +5,7 @@ import { type QaApp, recipeMoved, repoKnowledgeFolder, repoKnowledgePath, repoMo
 import { bumpVersion, ENDED, getSetting, markKnowledgeMoved, pendingKnowledgeChanges, writeSetting } from '@nolzu/core/node';
 import { isMaintenanceKey } from '@nolzu/protocol';
 import { commitKnowledgeFiles, git, gitEnv, type RunGit, SKILL_FOLDERS, writablePath } from '@nolzu/runner';
+import { knowledgeRepo, pinProjectGit } from './db.ts';
 import { knowledgeFiles } from './knowledge-page.ts';
 import { recordInRoot } from './manifest.ts';
 import { createWorkspace, type WorkspaceAnswer, workspaceTarget, writeRepoKnowledge } from './onboard.ts';
@@ -144,6 +145,10 @@ export async function makeThisAWorkspace(db: DatabaseSync, answer: WorkspaceAnsw
   const undo = (why: string, made: boolean): Answer => {
     // The list first, because the flag is refused while a list that needs it is stored.
     writeSetting(db, 'projectPath', old);
+    // Recorded again for the folder put back.
+    writeSetting(db, 'gitLink', null);
+    writeSetting(db, 'knowledgeRepo', null);
+    pinProjectGit(db);
     writeSetting(db, 'repos', null);
     writeSetting(db, 'workspace', null);
     writeSetting(db, 'baseBranch', base);
@@ -204,6 +209,7 @@ export async function makeThisAWorkspace(db: DatabaseSync, answer: WorkspaceAnsw
     const config = before.qaMcpConfigPath;
     if (config !== null && inside(config, old)) writeSetting(db, 'qaMcpConfigPath', join(moved, relative(old, config)));
     if (before.knowledgeDir !== null && inside(before.knowledgeDir, old)) writeSetting(db, 'knowledgeDir', null);
+    writeSetting(db, 'knowledgeRepo', null);
     // The answer for the project folder, which is now one folder in the workspace, moves with it.
     const apps = getSetting(db, 'qaApp');
     const app = apps?.['.'];
@@ -290,7 +296,8 @@ async function copyKnowledge(db: DatabaseSync, from: string, repo: string, env: 
     copied.push(to);
   }
   if (copied.length === 0) return { count: 0, problem: null };
-  const run: RunGit = (args) => git(args, { cwd: folder, env: gitEnv(env as Record<string, string>) });
+  const place = await knowledgeRepo(db, folder, gitEnv(env as Record<string, string>));
+  const run: RunGit = (args) => git(args, { cwd: folder, env: gitEnv(env as Record<string, string>), repo: place });
   try {
     const prefix = (await run(['rev-parse', '--show-prefix'])).stdout.trim();
     await commitKnowledgeFiles(run, 'knowledge: files from the repository', copied.map((path) => prefix + path));

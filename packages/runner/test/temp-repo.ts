@@ -17,8 +17,10 @@ export interface TempRepo {
 // Every repository a test builds runs with empty config files, a fixed author and committer
 // and no hooks. Without that, a developer's name, a global hook or a signing setting reaches
 // a fixture, and the suite then passes or fails depending on whose machine runs it.
-export function tempRepo(prefix = 'nolzu-git-'): TempRepo {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+// `base` is the folder the repository is made in: the system temp folder unless a test needs one the
+// git wall does not open on its own, such as the repository's ignored `.vitest` folder.
+export function tempRepo(prefix = 'nolzu-git-', base = tmpdir()): TempRepo {
+  const dir = mkdtempSync(join(base, prefix));
 
   // Real empty files, which the test can point git at and remove with the folder.
   const configGlobal = join(dir, 'gitconfig-global');

@@ -144,7 +144,7 @@ it('never runs a filter planted in a nested repository, on status, diff or add',
   const calls = [['status', '--porcelain'], ['-C', 'a', 'status', '--porcelain'], ['diff', 'HEAD'], ['diff'], ['add', '-u'], ['add', '--', ':(literal)a/'], ['add', '--', ':(literal)a/b/sub']];
   for (const args of calls) {
     utimesSync(join(sub, 'f.txt'), new Date('2020-01-01'), new Date('2020-01-01'));
-    await git(args, { cwd: repo.dir, env: repo.env });
+    await git(args, { cwd: repo.dir, env: repo.env, repo: { project: repo.dir, workTree: repo.dir } });
   }
 
   expect(existsSync(marker)).toBe(false);

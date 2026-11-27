@@ -119,6 +119,13 @@ export interface Settings {
   // aside and one `pending` row per file waits for the person to approve or return it.
   reviewKnowledge: boolean;
   projectPath: string | null;
+  // Where the project's `.git` led when Nolzu first opened the project: the plain folder itself, or
+  // where a link or a file that names a git folder elsewhere leads. Nolzu's git writes there and
+  // refuses when it later leads anywhere else. Null until the project has a `.git`.
+  gitLink: string | null;
+  // The top folder of the repository the knowledge folder is in, recorded when the knowledge folder
+  // is set or first used. A later answer from git that names another repository is refused.
+  knowledgeRepo: string | null;
   // Who the project is for, typed on Evidence beside the timesheet. Null until somebody types it. It
   // is a label and nothing reads it as an id.
   clientName: string | null;
@@ -289,6 +296,8 @@ export const DEFAULTS: Settings = {
   knowledgeDir: null,
   reviewKnowledge: false,
   projectPath: null,
+  gitLink: null,
+  knowledgeRepo: null,
   clientName: null,
   hourlyRate: null,
   currency: 'USD',
@@ -723,6 +732,8 @@ const VALIDATORS: Record<SettingKey, Validator> = {
     value === null || (typeof value === 'string' && (value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('\\\\')))
       ? ok(value)
       : no('The project path is a full folder path, such as /home/you/recipes, or nothing.'),
+  knowledgeRepo: (value) => (value === null || (typeof value === 'string' && value.startsWith('/')) ? ok(value) : no('The repository of the knowledge folder is a full folder path, or nothing.')),
+  gitLink: (value) => (value === null || (typeof value === 'string' && value.startsWith('/')) ? ok(value) : no("Where the project's .git leads is a full folder path, or nothing.")),
   clientName: (value) =>
     value === null || (typeof value === 'string' && value.trim() !== '') ? ok(value) : no('The client name is a name, or nothing at all.'),
   // A number, because it is multiplied by hours. Text here would draw NaN in every margin line.

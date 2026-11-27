@@ -34,7 +34,7 @@ function setUp() {
   return { made, card, other, bare };
 }
 
-const pull = (made: TempRepo, card: string) => pullBranch({ worktreePath: card, branch: 'APP-1-work', remote: 'origin', env: made.env });
+const pull = (made: TempRepo, card: string) => pullBranch({ worktreePath: card, repo: { project: join(made.dir, '..'), workTree: card, commonDir: join(made.dir, '.git') }, branch: 'APP-1-work', remote: 'origin', env: made.env });
 
 // The other machine adds search.ts to the card's branch and pushes it.
 function pushFromOther(made: TempRepo, other: string) {
@@ -94,7 +94,7 @@ it('says so when there is nothing to pull', async () => {
 it("answers in git's own words when the remote has no such branch", async () => {
   const { made, card } = setUp();
 
-  const result = await pullBranch({ worktreePath: card, branch: 'APP-2-gone', remote: 'origin', env: made.env });
+  const result = await pullBranch({ worktreePath: card, repo: { project: join(made.dir, '..'), workTree: card, commonDir: join(made.dir, '.git') }, branch: 'APP-2-gone', remote: 'origin', env: made.env });
 
   expect(result).toMatchObject({ ok: false, conflicts: [] });
   if (!result.ok) expect(result.reason).toMatch(/couldn't find remote ref|APP-2-gone/i);
@@ -124,13 +124,14 @@ it('finishes the merge when the request stops after the fetch', async () => {
   made.run('-C', card, 'commit', '-q', '-am', 'the card kept working');
   // Both sides changed list.ts, so git hands it to this slow merge driver inside the merge. A hook
   // cannot hold the merge here, because Nolzu runs git with the hooks off.
-  const mark = join(made.dir, '..', 'merging');
+  // In the shared git folder: the driver runs inside the git wall, which allows the repository only.
+  const mark = join(made.dir, '.git', 'merging');
   made.run('config', 'merge.slow.driver', `touch "${mark}"; sleep 1`);
   mkdirSync(join(made.dir, '.git', 'info'), { recursive: true });
   writeFileSync(join(made.dir, '.git', 'info', 'attributes'), 'list.ts merge=slow\n');
   const stop = new AbortController();
 
-  const pulling = pullBranch({ worktreePath: card, branch: 'APP-1-work', remote: 'origin', env: made.env, signal: stop.signal });
+  const pulling = pullBranch({ worktreePath: card, repo: { project: join(made.dir, '..'), workTree: card, commonDir: join(made.dir, '.git') }, branch: 'APP-1-work', remote: 'origin', env: made.env, signal: stop.signal });
   await vi.waitFor(() => expect(existsSync(mark)).toBe(true), { timeout: 10_000, interval: 20 });
   stop.abort();
 
