@@ -541,6 +541,16 @@ describe('nolzu-qa', () => {
     expect(text()).toContain('BLOCKED');
   });
 
+  // A check that needs data the app lacks, such as a user with a certain role, is where a run
+  // invents a way around it. Writing data outside the checkout is the project's call: the app may
+  // talk to a shared database. So the default creates nothing and names what is missing.
+  it('creates test data only when the project allows it, and names what is missing otherwise', () => {
+    expect(prose()).toMatch(/create test data only where the project's QA instructions allow it, never on another host/i);
+    expect(prose()).toContain('`qa-<card key>-`');
+    expect(prose()).toMatch(/delete it when you are done/i);
+    expect(prose()).toMatch(/data the app does not have, .* it is BLOCKED naming exactly what is missing, never FAIL/i);
+  });
+
   // An acceptance check nobody could observe is the case that turns QA into a rubber stamp.
   it('refuses to pass a check it could not observe', () => {
     expect(prose()).toMatch(/could not observe is not a pass/i);

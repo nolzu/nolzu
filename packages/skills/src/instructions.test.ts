@@ -95,10 +95,10 @@ it('says nothing about an own copy when the project changed no file', () => {
 });
 
 // Claude Code has been seen cutting a long skill at 20,000 characters and losing the rules past the
-// cut. Every skill that ships stays well under that, read whole, linked files and all. Plan and QA are the
-// longest.
-it.each(readdirSync(skillsDir).filter((name) => name.startsWith('nolzu-')))('keeps the %s instructions under 17,000 characters', (folder) => {
-  expect(textOf(folder.replace(/^nolzu-/, '')).length).toBeLessThan(17_000);
+// cut. Every skill that ships stays well under that, read whole, linked files and all, with 2,500 to
+// spare. Plan and QA are the longest.
+it.each(readdirSync(skillsDir).filter((name) => name.startsWith('nolzu-')))('keeps the %s instructions under 17,500 characters', (folder) => {
+  expect(textOf(folder.replace(/^nolzu-/, '')).length).toBeLessThan(17_500);
 });
 
 // An engine run without Nolzu has only the skill, so the skill is what sends it to the project's own
