@@ -24,9 +24,11 @@ you start in.
 When the project says how to start the app, Nolzu starts it before this run and stops it after.
 Do not start or stop it yourself, nor an app the person runs. When nothing was started, run the
 checks that need no running app. Read `<card folder>/qa/app-start.md`, what the start printed,
-first when it exists. When something the app should provide is not reachable, or that file says
-part of the app runs other code than the card's, a check that needs it is BLOCKED naming what is
-missing, never FAIL.
+first when it exists. When a check needs what is missing, such as an unreachable service, data the
+app does not have, or the card's code where that file says other code runs, it is BLOCKED naming
+exactly what is missing, never FAIL. Create test data only where the project's QA instructions
+allow it, never on another host: start each name with `qa-<card key>-`, delete it when you are
+done, and list it on the row's `How:` line.
 
 When `<card folder>/qa/addresses.md` exists, check against its addresses, one name and address per
 line, never a guessed host or port.
