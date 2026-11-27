@@ -234,3 +234,125 @@ describe("Nolzu's git over a link in a card's git folders", () => {
     expect(linkBeforeWrite(['commit', '-m', 'x'], join(s.card, 'src'), s.made.env)).toContain('SQUASH_MSG is a link');
   });
 });
+
+describe('the link check before every git command that writes', () => {
+  it('refuses an add and an rm through git() over a link in the git folder, and leaves the index alone', async () => {
+    const s = setUp();
+    symlinkSync(s.canary, join(s.own, 'SQUASH_MSG'));
+    writeFileSync(join(s.card, 'more.ts'), 'export const more = 1;\n');
+    const added = await git(['add', '--', 'more.ts'], { cwd: s.card, env: s.made.env });
+    expect(added).toEqual({ code: 128, stdout: '', stderr: expect.stringContaining('SQUASH_MSG is a link') });
+    const removed = await git(['rm', '-q', '--', 'list.ts'], { cwd: s.card, env: s.made.env });
+    expect(removed).toEqual({ code: 128, stdout: '', stderr: expect.stringContaining('SQUASH_MSG is a link') });
+    expect(s.made.run('-C', s.card, 'status', '--porcelain')).toBe('?? more.ts\n');
+    expect(readFileSync(s.canary, 'utf8')).toBe('export IMPORTANT=1\n');
+  });
+
+  it('checks the write forms of config and remote, a submodule command and an unlisted one, and leaves their reads alone', () => {
+    const s = setUp();
+    symlinkSync(s.canary, join(s.own, 'SQUASH_MSG'));
+    for (const read of [['config', '--get', 'user.name'], ['config', 'core.sshCommand'], ['remote'], ['remote', 'get-url', 'origin'], ['ls-remote', '--tags', 'origin']]) {
+      expect(linkBeforeWrite(read, s.card, s.made.env)).toBeNull();
+    }
+    for (const write of [['config', 'core.hooksPath', '/x'], ['config', '--unset', 'x.y'], ['remote', 'add', 'x', 'url'], ['remote', 'remove', 'origin'], ['submodule', 'deinit', '-f', '--', 'x'], ['add', '-A'], ['rm', 'x'], ['gc']]) {
+      expect(linkBeforeWrite(write, s.card, s.made.env)).toContain('SQUASH_MSG is a link');
+    }
+  });
+
+  it('checks the folder init and clone make a repository in, and passes a fresh one', () => {
+    const s = setUp();
+    // A link in the repository above a fresh folder does not stop a new repository there: git writes
+    // nothing in the one above.
+    symlinkSync(s.canary, join(s.common, 'logs', 'refs', 'heads', 'linked'));
+    expect(linkBeforeWrite(['init', '-q', '-b', 'main', 'fresh'], s.made.dir, s.made.env)).toBeNull();
+    expect(linkBeforeWrite(['clone', '--', 'https://h/a/fresh.git'], s.made.dir, s.made.env)).toBeNull();
+    // init again in a repository that is there writes in its git folders.
+    expect(linkBeforeWrite(['init', '-q'], s.made.dir, s.made.env)).toContain('linked is a link');
+    expect(linkBeforeWrite(['-C', s.made.dir, 'init'], join(s.made.dir, '..'), s.made.env)).toContain('linked is a link');
+  });
+
+  it('refuses a clone and an init into a folder that is a link, and writes nothing where it points', async () => {
+    const s = setUp();
+    const outside = join(s.made.dir, '..', 'outside');
+    mkdirSync(outside);
+    const target = join(s.made.dir, '..', 'copy');
+    symlinkSync(outside, target);
+    const bare = join(s.made.dir, '..', 'remote.git');
+    const cloned = await git(['clone', '-q', '--', bare, target], { cwd: join(s.made.dir, '..'), env: s.made.env });
+    expect(cloned).toEqual({ code: 128, stdout: '', stderr: `${target} is a link, so git would make its folder where the link points. Nolzu stopped before running git there. Remove the link, or use the folder it points to.` });
+    const started = await git(['init', '-q', target], { cwd: join(s.made.dir, '..'), env: s.made.env });
+    expect(started.code).toBe(128);
+    expect(readdirSync(outside)).toEqual([]);
+    // A dangling link counts too: git would make the folder where it points.
+    rmSync(outside, { recursive: true });
+    expect((await git(['clone', '-q', '--', bare, target], { cwd: join(s.made.dir, '..'), env: s.made.env })).code).toBe(128);
+    expect(existsSync(outside)).toBe(false);
+  });
+
+  it('refuses a link at any step from the folder the call runs in down to a new repository, and not above it', async () => {
+    const s = setUp();
+    const base = join(s.made.dir, '..');
+    const outside = join(base, 'outside');
+    const ws = join(base, 'ws');
+    mkdirSync(outside);
+    mkdirSync(ws);
+    symlinkSync(outside, join(ws, 'sub'));
+    symlinkSync(join(base, 'nowhere'), join(ws, 'dangling'));
+    const bare = join(base, 'remote.git');
+    for (const args of [['init', '-q', join(ws, 'sub', 'new')], ['init', '-q', 'dangling/a/b'], ['clone', '-q', '--', bare, 'sub/copy'], ['init', '--separate-git-dir', join(ws, 'sub', 'g'), 'fine']]) {
+      const said = await git(args, { cwd: ws, env: s.made.env });
+      expect([args, said.code, said.stderr]).toEqual([args, 128, expect.stringMatching(/(sub|dangling) is a link, so git would make its folder where the link points/)]);
+    }
+    expect(readdirSync(outside)).toEqual([]);
+    expect(existsSync(join(base, 'nowhere'))).toBe(false);
+    // A link above the folder the call runs in is the person's own setup, as macOS keeps its temp folder.
+    const started = await git(['init', '-q', 'new'], { cwd: join(ws, 'sub'), env: s.made.env });
+    expect(started.code).toBe(0);
+    expect(readdirSync(outside)).toEqual(['new']);
+  });
+
+  it('refuses a worktree add through a linked folder on the way from the owner folder', async () => {
+    const s = setUp();
+    const outside = join(s.made.dir, '..', 'outside');
+    mkdirSync(outside);
+    symlinkSync(outside, join(s.made.dir, 'worktrees'));
+    const target = join(s.made.dir, 'worktrees', 'APP-2');
+    const said = await git(['worktree', 'add', '-q', '-b', 'APP-2-work', target], { cwd: s.made.dir, env: s.made.env });
+    expect(said).toEqual({ code: 128, stdout: '', stderr: expect.stringContaining(`${join(s.made.dir, 'worktrees')} is a link`) });
+    // From a repository one folder down, the project named as the owner still covers the walk.
+    const web = join(s.made.dir, 'web');
+    mkdirSync(web);
+    s.made.run('-C', web, 'init', '-q');
+    expect(linkBeforeWrite(['worktree', 'add', join(s.made.dir, 'worktrees', 'APP-3', 'web')], web, s.made.env, s.made.dir)).toContain(`${join(s.made.dir, 'worktrees')} is a link`);
+    expect(readdirSync(outside)).toEqual([]);
+  });
+
+  // The system follows `sub` before it climbs back up the `..`, so `sub/../new` is a folder next to
+  // where the link points. And a `-C` folder that is a link is no place to start the walk from.
+  it('refuses a .. part in a folder a call makes or a -C folder, and walks from where git runs, not from -C', async () => {
+    const s = setUp();
+    const base = join(s.made.dir, '..');
+    const outside = join(base, 'outside');
+    const ws = join(base, 'ws');
+    mkdirSync(join(outside, 'a'), { recursive: true });
+    mkdirSync(ws);
+    symlinkSync(join(outside, 'a'), join(ws, 'sub'));
+    const climbs = await git(['init', '-q', 'sub/../new'], { cwd: ws, env: s.made.env });
+    expect(climbs).toEqual({ code: 128, stdout: '', stderr: 'sub/../new has a .. part, which leads wherever a link before it points. Nolzu stopped before running git there. Name the folder without ..' });
+    for (const args of [['init', '--separate-git-dir', 'sub/../g', 'fine'], ['-C', 'sub/..', 'init', '-q', 'x'], ['worktree', 'add', 'sub/../wt']]) {
+      expect(linkBeforeWrite(args, ws, s.made.env)).toContain('has a .. part');
+    }
+    const moved = await git(['-C', 'sub', 'init', '-q', 'new'], { cwd: ws, env: s.made.env });
+    expect(moved).toEqual({ code: 128, stdout: '', stderr: expect.stringContaining(`${join(ws, 'sub')} is a link`) });
+    expect(readdirSync(outside)).toEqual(['a']);
+    expect(readdirSync(join(outside, 'a'))).toEqual([]);
+    // A `..` in a -C folder of a command that makes nothing is left to the checks for that command.
+    expect(linkBeforeWrite(['-C', 'sub/..', 'commit', '-m', 'x'], ws, s.made.env)).toBeNull();
+  });
+
+  it('runs git --version over a link in the git folder, since it writes nothing', async () => {
+    const s = setUp();
+    symlinkSync(s.canary, join(s.own, 'SQUASH_MSG'));
+    expect((await git(['--version'], { cwd: s.card, env: s.made.env })).code).toBe(0);
+  });
+});

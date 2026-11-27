@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { gitEnv } from './env.ts';
-import { exitCode, git, gitBinary } from './exec.ts';
+import { exitCode, git, GIT_FLAGS, gitBinary, NO_HOOKS } from './exec.ts';
 import { cloneProgress, type CloneProgress } from './porcelain.ts';
 
 // Long enough for a large repository on a slow line. A clone past it is stopped and removed.
@@ -48,7 +48,9 @@ function runClone(args: readonly string[], cwd: string, env: Record<string, stri
       reject(new Error('git was not found on the PATH. Install git, or check the PATH resolved from the login shell.'));
       return;
     }
-    const child = spawn(binary, args, { cwd, env, detached: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    // The flags and the hooks off of every other git call: a template folder in the person's config
+    // can put a post-checkout hook in the new repository, and git would run it at the end of the clone.
+    const child = spawn(binary, [...GIT_FLAGS, ...NO_HOOKS, ...args], { cwd, env, detached: true, stdio: ['ignore', 'ignore', 'pipe'] });
     const { pid } = child;
     const kill = (): void => {
       try {

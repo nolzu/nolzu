@@ -150,7 +150,8 @@ export async function ensureWorktree(options: EnsureWorktreeOptions): Promise<Wo
   // and branch would land in one nobody chose. Left undefined, spawn inherits this process's
   // own environment, where such a variable also sits.
   const env = gitEnv(options.env ?? process.env);
-  const run = (args: readonly string[]) => git(args, { cwd: at, env, signal: options.signal });
+  // The project is the owner: a link on the way from it down to the card's checkout is refused.
+  const run = (args: readonly string[]) => git(args, { cwd: at, env, signal: options.signal, owner: projectPath });
 
   // The key becomes a folder name. A segment that climbs out would put the checkout somewhere the
   // exclude does not cover, which is the thing conflict 17 exists to prevent.

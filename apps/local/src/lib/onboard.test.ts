@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -1334,6 +1334,19 @@ describe('making a workspace', () => {
 
       expect(made.ok).toBe(false);
       expect(readdirSync(home)).toEqual([]);
+    });
+
+    // git refuses to make a repository through a link, so the folder it points to is used and stored.
+    it('uses the empty folder a typed link points to, and stores that folder', async () => {
+      mkdirSync(at('volume'));
+      symlinkSync(at('volume'), at('recipes'));
+
+      const made = await inFolder('~/recipes');
+
+      expect(made).toMatchObject({ ok: true, path: realpathSync.native(at('volume')) });
+      expect(getSetting(db, 'projectPath')).toBe(realpathSync.native(at('volume')));
+      expect(existsSync(join(at('volume'), '.git'))).toBe(true);
+      expect(lstatSync(at('recipes')).isSymbolicLink()).toBe(true);
     });
 
     it('stores the folder typed with a trailing slash without it', async () => {
