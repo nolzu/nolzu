@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ASSIGNED_JQL,
   flattenAdf,
   JIRA_FIELDS,
   type JiraAnswer,
@@ -246,6 +247,12 @@ describe('searchPath', () => {
   // A query the person typed names its own projects, so the guard above must not fire on it.
   it('takes the query the person typed with no projects beside it', () => {
     expect(searchPath([], 30, null, 'project = PROJ AND status = Open')).toContain('jql=project+%3D+PROJ+AND+status+%3D+Open');
+  });
+
+  // Add card's list of the person's own tickets: theirs, open, newest change first, in any project.
+  it('asks for the open tickets assigned to the account, newest change first', () => {
+    const jql = new URLSearchParams(searchPath([], 100, null, ASSIGNED_JQL).split('?')[1]).get('jql');
+    expect(jql).toBe('assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC');
   });
 });
 

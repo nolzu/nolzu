@@ -7,7 +7,7 @@ export { chainTarget, dropLabel, dropOutcome, dropTarget, goneSentence, keyStart
 export { engineName, ranOn } from '@nolzu/protocol';
 
 export { default as AddCardDialog } from './board/AddCardDialog.svelte';
-export { addWords } from './board/add-card.ts';
+export { addWords, type MyTickets } from './board/add-card.ts';
 export { matchesFilter, waitingOnMe } from './board/filter.ts';
 export { cardPill, liveOf, type Live, type Pill } from './board/quiet.ts';
 export { answerHref, pickOption } from './board/answer.ts';

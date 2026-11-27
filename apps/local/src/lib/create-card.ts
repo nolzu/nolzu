@@ -424,12 +424,18 @@ export async function remoteOwner(db: DatabaseSync): Promise<string | null> {
  * else's repository.
  */
 export async function refOwner(db: DatabaseSync, name: string): Promise<{ owner: string | null; several: string[] }> {
-  const repos = projectRepos({ repos: getSetting(db, 'repos'), baseBranch: getSetting(db, 'baseBranch') });
-  const origins = (await Promise.all(repos.map((one) => remoteRepo(db, one.path)))).filter((one) => one !== null);
+  const origins = await githubOrigins(db);
   const named = [...new Set(origins.filter((one) => one.repo.toLowerCase() === name.toLowerCase()).map((one) => one.owner))];
   if (named.length > 1) return { owner: null, several: named };
   const owners = [...new Set(origins.map((one) => one.owner))];
   return { owner: named[0] ?? (owners.length === 1 ? (owners[0] ?? null) : null), several: [] };
+}
+
+// The GitHub repository each project repository's origin points at. A repository with no GitHub origin
+// is left out.
+export async function githubOrigins(db: DatabaseSync): Promise<{ owner: string; repo: string }[]> {
+  const repos = projectRepos({ repos: getSetting(db, 'repos'), baseBranch: getSetting(db, 'baseBranch') });
+  return (await Promise.all(repos.map((one) => remoteRepo(db, one.path)))).filter((one) => one !== null);
 }
 
 // Add card's way to GitHub: the person's `gh`, and the owner `refOwner` finds for the ref's repository.

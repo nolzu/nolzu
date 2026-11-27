@@ -11,7 +11,7 @@ import { drawnAt } from '../../../../test/stubs/app-paths.ts';
 // eslint-disable-next-line no-restricted-imports -- a test stub, which belongs to no package
 import { page } from '../../../../test/stubs/app-state.ts';
 import { toggleFilter } from './board-keys.ts';
-import { addedOf, addedToast, addOrHold, addRequest, allowedFor, answered, boardCount, boardKind, cardAdded, cardDeleted, confirmFix, confirmStage, dismissed, filterOn, filterQuery, fixLink, isBoardRoute, keyCopied, keyWrite, nextKey, NO_TOASTS, postCard, postJira, pressed, researchCard, landed, nextStepOf, pullsAddress, readPullsSaid, refusedDrop, sendMove, SETTING_TOAST, settingToast, stageBack, stageBefore, stageForward, streamAddress } from './board-page.ts';
+import { addedOf, addedToast, addOrHold, addRequest, allowedFor, answered, boardCount, boardKind, cardAdded, cardDeleted, confirmFix, confirmStage, dismissed, filterOn, filterQuery, fixLink, isBoardRoute, keyCopied, keyWrite, myTicketsOf, nextKey, NO_TOASTS, postCard, postJira, pressed, researchCard, landed, nextStepOf, pullsAddress, readPullsSaid, refusedDrop, sendMove, SETTING_TOAST, settingToast, stageBack, stageBefore, stageForward, streamAddress } from './board-page.ts';
 
 // The filter's press goes somewhere, and the test reads where.
 vi.mock('$app/navigation', () => ({ goto: vi.fn(async () => {}) }));
@@ -274,6 +274,17 @@ it('reads the key the next local card gets, and nothing when the app does not an
     throw new TypeError('fetch failed');
   });
   expect(await nextKey(down, '/api/cards/next')).toBeNull();
+});
+
+it('reads your tickets, and says so in their place when the app does not answer', async () => {
+  const mine = { asked: true, tickets: [{ key: 'PROJ-2', title: 'Plan a week of meals', input: 'PROJ-2' }], problems: [] };
+  expect(await myTicketsOf(answer(200, JSON.stringify(mine)), '/api/tickets/mine')).toEqual(mine);
+  const down = vi.fn(async (): Promise<Response> => {
+    throw new TypeError('fetch failed');
+  });
+  const lost = { asked: true, tickets: [], problems: ['Your tickets were not read, because Nolzu did not answer. Check that it is still running.'] };
+  expect(await myTicketsOf(down, '/api/tickets/mine')).toEqual(lost);
+  expect(await myTicketsOf(answer(500, 'not json'), '/api/tickets/mine')).toEqual(lost);
 });
 
 it('connects Jira with one POST, and passes a refusal on in its own words', async () => {

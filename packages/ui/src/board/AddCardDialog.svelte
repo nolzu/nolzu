@@ -3,7 +3,7 @@
   import { onMount, tick } from 'svelte';
   import Button from '../Button.svelte';
   import Dialog from '../Dialog.svelte';
-  import { addWords, canSubmit, cardKey, type CardPayload, cardPayload, copyContext, pressOf, readInput, startOffer, type Tickets } from './add-card.ts';
+  import { addWords, canSubmit, cardKey, type CardPayload, cardPayload, copyContext, mineLine, type MyTicket, type MyTickets, pressOf, readInput, showMine, startOffer, type Tickets } from './add-card.ts';
 
   type Made = { ok: true; key: string; note: string | null } | { ok: false; reason: string };
   type Connected = { ok: true } | { ok: false; reason: string };
@@ -19,6 +19,7 @@
     sources = async () => [],
     next = async () => null,
     tickets = 'local',
+    mine,
     onconnect,
     onsubmit,
     onclose,
@@ -38,6 +39,9 @@
     next?: (board: BoardKind) => Promise<string | null>;
     // The project's ticket system. With Jira, a typed key or a Jira link is read from Jira.
     tickets?: Tickets;
+    // The tickets assigned to the person with no card yet, asked for once as the dialog opens. Left out,
+    // no list is drawn.
+    mine?: () => Promise<MyTickets>;
     // Connect Jira, offered when a Jira link is pasted on a local project. The page posts it, because
     // this package never fetches. Left out, no offer is drawn.
     onconnect?: (form: { site: string; email: string; token: string }) => Promise<Connected>;
@@ -61,6 +65,9 @@
   let extraOpen = $state((draft?.extra ?? '') !== '');
   let copyable = $state<readonly { key: string; title: string; extra: string }[]>([]);
   let nextKey = $state<string | null>(null);
+  let mineRead = $state<MyTickets | null>(null);
+  // The row whose press is on its way, so only that one says it is busy.
+  let pressed = $state<string | null>(null);
   // A copy that waits for a yes, because the field holds text the person typed.
   let asking = $state<{ key: string; extra: string } | null>(null);
   // The system as the dialog knows it, so a Connect that went through reads the key from Jira at once.
@@ -90,6 +97,7 @@
   onMount(() => {
     void sources().then((found) => (copyable = found));
     void next(board).then((found) => (nextKey = found));
+    if (mine !== undefined && board !== 'prreview') void mine().then((found) => (mineRead = found));
   });
 
   let extraField: HTMLTextAreaElement;
@@ -163,14 +171,17 @@
 
   // One way in for Add to Inbox, the go button and both keys. A press while the card is on its way sends
   // nothing, so a double press never makes two cards or two runs.
-  async function send(start: boolean): Promise<void> {
-    if (held || (start && offer.stage === null)) return;
+  // A row of Your tickets sends its own input in place of the field's, and never starts a run.
+  async function send(start: boolean, ticket?: MyTicket): Promise<void> {
+    if (ticket === undefined ? held || (start && offer.stage === null) : sending) return;
     sending = true;
     starting = start;
+    pressed = ticket?.key ?? null;
     refusal = '';
-    const payload = cardPayload({ input, description, extra: extra.trim() === '' ? undefined : extra }, prefix);
+    const payload = cardPayload({ input: ticket?.input ?? input, description: ticket === undefined ? description : '', extra: extra.trim() === '' ? undefined : extra }, prefix);
     const made = await onsubmit({ ...payload, board, ...(start ? { start: true as const } : {}) });
     sending = false;
+    pressed = null;
     if (made.ok) {
       added = true;
       shell.close();
@@ -217,6 +228,32 @@
           issue or pull request link is read through <code>gh</code>.{/if}
       </p>
     </div>
+
+    <!-- One press adds the ticket as if its link or key were pasted. Plain buttons, because no run starts. -->
+    {#if showMine(mineRead, board, input)}
+      <section class="mine" aria-labelledby="{uid}-mine" data-mine>
+        <div class="label-row">
+          <h3 id="{uid}-mine">Your tickets</h3>
+          <span class="quiet" data-mine-line>{mineLine(mineRead)}</span>
+        </div>
+        {#each mineRead.problems as problem (problem)}<p class="problem">{problem}</p>{/each}
+        {#if mineRead.tickets.length > 0}
+          <ul>
+            {#each mineRead.tickets as ticket (ticket.key)}
+              <li>
+                <button
+                  type="button"
+                  data-mine-ticket={ticket.key}
+                  aria-disabled={sending ? 'true' : undefined}
+                  aria-busy={pressed === ticket.key ? 'true' : undefined}
+                  onclick={() => void send(false, ticket)}><span class="key">{ticket.key}</span><span class="mine-title">{ticket.title}</span></button
+                >
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </section>
+    {/if}
 
     <!-- A Jira link on a local project. Blue, because it
          is information and starts nothing. The fields sit inside the card form, so Enter in them is
@@ -515,6 +552,68 @@
     border-radius: var(--radius-md);
     font: inherit;
     font-size: var(--text-xs);
+  }
+
+  .mine {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .mine h3 {
+    margin: 0;
+    font-size: var(--text-xs);
+    font-weight: 500;
+    color: var(--ink-2);
+  }
+
+  .problem {
+    margin: 0;
+    font-size: var(--text-xs);
+    color: var(--ink);
+  }
+
+  /* About six rows, then it scrolls, so the rest of the form stays in view. */
+  .mine ul {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 13.5rem;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+  }
+
+  .mine li button {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    width: 100%;
+    border-color: var(--line);
+    background: var(--bg);
+    color: var(--ink);
+    font-size: var(--text-sm);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  /* The edge only: the key is muted ink, which tokens.test.ts measures on the page background. */
+  .mine li button:hover {
+    border-color: var(--line-2);
+  }
+
+  .mine li button .key {
+    margin-left: 0;
+    flex: none;
+  }
+
+  .mine-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .ask {
