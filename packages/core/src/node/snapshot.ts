@@ -7,7 +7,8 @@ import type { RunPlace, WallState } from '../phase-policy.ts';
 import { cardBase, cardModels, cardPreset, cardSavedPreset } from './cards.ts';
 import { boardVersion } from './db.ts';
 import { pendingKnowledgeChanges } from './knowledge-changes.ts';
-import { feedbackCounts } from './pr-discussions.ts';
+import { feedbackCounts, mergeBlockersByCard } from './pr-discussions.ts';
+import { WATCHED_STAGES } from '../merge.ts';
 import { startEstimate } from './estimates.ts';
 import { boardRuns, NOT_A_PASS, parseOutputCheck } from './runs.ts';
 import { getSetting, projectOutsideGit, projectProfiles } from './settings-store.ts';
@@ -211,6 +212,8 @@ export function boardSnapshot(db: DatabaseSync, input: SnapshotInput): BoardSnap
   const archive = board.stages.find((stage) => stage.role === 'archive')?.id;
   // Only Delivery cards have pull request comments, so every other board pays nothing for the count.
   const feedback = board.kind === 'delivery' ? feedbackCounts(db) : new Map<string, NonNullable<CardView['feedback']>>();
+  // Only from Review to Wrap-up, the columns the timer keeps the read fresh in.
+  const blocked = board.kind === 'delivery' ? mergeBlockersByCard(db) : new Map<string, NonNullable<CardView['blockers']>>();
 
   // The newest run per card. A card runs one phase at a time, so the newest is either the one it is
   // waiting on or the one that ended last, and that is the only run the board shows. A pass, the
@@ -247,6 +250,7 @@ export function boardSnapshot(db: DatabaseSync, input: SnapshotInput): BoardSnap
     const pushed = newCommitsOf(row);
     // Not on a closed card, as for the output check: nothing there is left to answer.
     const comments = row.stage === archive ? undefined : feedback.get(row.key);
+    const blockers = WATCHED_STAGES.includes(row.stage) ? blocked.get(row.key) : undefined;
 
     return {
       key: row.key,
@@ -275,6 +279,7 @@ export function boardSnapshot(db: DatabaseSync, input: SnapshotInput): BoardSnap
       // Not on a closed card: its page draws no gate to list them, and nothing there needs attention.
       ...(row.stage === archive ? {} : outputProblemsOf(run?.output_check ?? null)),
       ...(comments === undefined ? {} : { feedback: comments }),
+      ...(blockers === undefined ? {} : { blockers }),
       pull:
         row.pr_decision === null
           ? null

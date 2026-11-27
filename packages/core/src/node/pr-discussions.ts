@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import type { MergeBlocker, MergeRead } from '@nolzu/protocol';
 
 /**
  * The pull requests of a Delivery card and the discussions on them, as the last read of GitHub left
@@ -25,6 +26,9 @@ export interface StoredCardPull {
   foundBy: PullFoundBy;
   // When its comments were last read, null before any read.
   readAt: string | null;
+  // Why it cannot merge and when that was read, null before a read asked.
+  merge: MergeRead | null;
+  mergeAt: string | null;
 }
 
 /** One discussion as GitHub answered it, the shape a read hands in. */
@@ -86,23 +90,55 @@ export interface DiscussionsStored {
 /**
  * Keeps one pull request of a card and answers its row id. A second save of the same one keeps how it
  * was first found, so a pull request a person attached stays attached when the branch finds it too.
- * A title or state left out keeps the one an earlier read saw.
+ * A title, state or merge read left out keeps the one an earlier read saw. A merge read is stamped now.
  */
 export function saveCardPull(
   db: DatabaseSync,
   card: string,
-  pull: { repo: string; number: number; url: string | null; foundBy: PullFoundBy; title?: string | null; state?: PullRequestState | null },
+  pull: { repo: string; number: number; url: string | null; foundBy: PullFoundBy; title?: string | null; state?: PullRequestState | null; merge?: MergeRead },
 ): number {
+  const merge = pull.merge === undefined ? null : JSON.stringify(pull.merge);
   const row = db
     .prepare(
-      'INSERT INTO card_pulls (card_key, repo, number, url, title, state, found_by) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (card_key, repo, number) DO UPDATE SET url = coalesce(excluded.url, url), title = coalesce(excluded.title, title), state = coalesce(excluded.state, state) RETURNING id',
+      `INSERT INTO card_pulls (card_key, repo, number, url, title, state, found_by, merge, merge_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ?8 IS NULL THEN NULL ELSE strftime('%Y-%m-%dT%H:%M:%fZ') END)
+       ON CONFLICT (card_key, repo, number) DO UPDATE SET url = coalesce(excluded.url, url), title = coalesce(excluded.title, title), state = coalesce(excluded.state, state), merge = coalesce(excluded.merge, merge), merge_at = coalesce(excluded.merge_at, merge_at) RETURNING id`,
     )
-    .get(card, pull.repo.toLowerCase(), pull.number, pull.url, pull.title ?? null, pull.state ?? null, pull.foundBy) as { id: number };
+    .get(card, pull.repo.toLowerCase(), pull.number, pull.url, pull.title ?? null, pull.state ?? null, pull.foundBy, merge) as { id: number };
   return row.id;
 }
 
+// A stored merge read, or null for one that is not there or not readable.
+function mergeOf(stored: string | null): MergeRead | null {
+  if (stored === null) return null;
+  try {
+    const read = JSON.parse(stored) as MergeRead;
+    return Array.isArray(read.blockers) ? read : null;
+  } catch {
+    return null;
+  }
+}
+
+// The order the board card names the reasons in, the first one on the chip.
+const ORDER: readonly MergeBlocker['kind'][] = ['checks', 'conflict', 'behind', 'approval', 'changes', 'draft', 'unknown', 'blocked'];
+
+/**
+ * Why the open pull requests of each card cannot merge, as the last reads stored it, every pull request
+ * of a card in one list in the chip's order. A card with nothing blocking is left out. One query for
+ * the whole board.
+ */
+export function mergeBlockersByCard(db: DatabaseSync): Map<string, MergeBlocker[]> {
+  const rows = db.prepare("SELECT card_key, merge FROM card_pulls WHERE state = 'open' AND merge IS NOT NULL ORDER BY id").all() as { card_key: string; merge: string }[];
+  const cards = new Map<string, MergeBlocker[]>();
+  for (const row of rows) {
+    const blockers = mergeOf(row.merge)?.blockers ?? [];
+    if (blockers.length > 0) cards.set(row.card_key, [...(cards.get(row.card_key) ?? []), ...blockers]);
+  }
+  for (const list of cards.values()) list.sort((one, two) => ORDER.indexOf(one.kind) - ORDER.indexOf(two.kind));
+  return cards;
+}
+
 export function cardPullRows(db: DatabaseSync, card: string): StoredCardPull[] {
-  const rows = db.prepare('SELECT id, card_key, repo, number, url, title, state, found_by, read_at FROM card_pulls WHERE card_key = ? ORDER BY id').all(card) as {
+  const rows = db.prepare('SELECT id, card_key, repo, number, url, title, state, found_by, read_at, merge, merge_at FROM card_pulls WHERE card_key = ? ORDER BY id').all(card) as {
     id: number;
     card_key: string;
     repo: string;
@@ -112,6 +148,8 @@ export function cardPullRows(db: DatabaseSync, card: string): StoredCardPull[] {
     state: PullRequestState | null;
     found_by: PullFoundBy;
     read_at: string | null;
+    merge: string | null;
+    merge_at: string | null;
   }[];
   return rows.map((row) => ({
     id: row.id,
@@ -123,6 +161,8 @@ export function cardPullRows(db: DatabaseSync, card: string): StoredCardPull[] {
     state: row.state,
     foundBy: row.found_by,
     readAt: row.read_at,
+    merge: mergeOf(row.merge),
+    mergeAt: row.merge_at,
   }));
 }
 

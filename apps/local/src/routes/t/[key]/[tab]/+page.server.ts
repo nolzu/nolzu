@@ -1,5 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
-import { boardFor } from '@nolzu/core';
+import { boardFor, WATCHED_STAGES } from '@nolzu/core';
 import { cardDiscussions, cardPullRows, fixedSinceQa, getSetting } from '@nolzu/core/node';
 import { parseRunLine } from '@nolzu/runner';
 import { qaView } from '@nolzu/ui/qa';
@@ -64,6 +64,12 @@ export const load: PageServerLoad = async ({ params, parent, request, url }) => 
     // The models name the next step's engine on a card that never ran.
     facts: wanted.current === 'overview' ? cardFacts(database(), params.key, process.env, loop().models()) : null,
     closed,
+    // Why each open pull request cannot merge, as the last read stored it. Nothing here asks GitHub: the
+    // timer and the board press read it. Only from Review to Wrap-up, where the timer keeps it fresh.
+    merge:
+      wanted.current === 'overview' && ticket.board === 'delivery' && WATCHED_STAGES.includes(ticket.stage)
+        ? cardPullRows(database(), params.key).flatMap((row) => (row.state === 'open' && row.merge !== null && row.mergeAt !== null ? [{ repo: row.repo, number: row.number, url: row.url, read: row.merge, at: row.mergeAt }] : []))
+        : [],
     // The pull request state, which the page asks for once it has drawn. Only a Delivery card waits on
     // a pull request: asked for a closed epic, gh would look for a branch nobody pushed.
     pulls: closed && ticket.board === 'delivery',

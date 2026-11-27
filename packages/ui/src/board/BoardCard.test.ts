@@ -894,3 +894,17 @@ it('shows the review comments line with its counts, and none without them', () =
   expect(text(draw({ key: 'APP-1', state: 'idle', feedback: { toFix: 0, unread: 2 } }))).toContain('2 new');
   expect(draw({ key: 'APP-1', state: 'idle' })).not.toContain('data-feedback');
 });
+
+// Why the pull request cannot merge: the first reason in words, the count of the rest, and the whole
+// list for a reader. No chip when nothing blocks.
+it('shows why the pull request cannot merge in words, and no chip when nothing blocks', () => {
+  const body = draw({ key: 'APP-1', state: 'idle', blockers: [{ kind: 'checks', failed: [{ name: 'build', url: null }] }, { kind: 'approval' }] });
+
+  expect(body).toContain('data-merge="APP-1"');
+  expect(body).toContain('href="/t/APP-1/overview#merge"');
+  expect(text(body)).toContain('Checks failed +1');
+  expect(text(body)).toContain('Cannot merge. 1 check failed: build. It needs an approval.');
+  expect(draw({ key: 'APP-1', state: 'idle', blockers: [{ kind: 'conflict', base: 'main' }] })).toMatch(/>Conflict<\/span>/);
+  expect(draw({ key: 'APP-1', state: 'idle' })).not.toContain('data-merge');
+  expect(draw({ key: 'APP-1', state: 'idle', blockers: [] })).not.toContain('data-merge');
+});

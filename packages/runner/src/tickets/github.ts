@@ -1,4 +1,5 @@
-import { type PullDecision, pullKey, type Ticket, type TicketAdapter, type TicketQuery, type TicketRef, type TicketResult } from '@nolzu/protocol';
+import { mergeBlockers, type MergeFields } from '@nolzu/core';
+import { type MergeRead, type PullDecision, pullKey, type Ticket, type TicketAdapter, type TicketQuery, type TicketRef, type TicketResult } from '@nolzu/protocol';
 
 /**
  * The GitHub Issues adapter, through `gh`.
@@ -33,7 +34,7 @@ export interface GitHubOptions {
 // hundred.
 export const BATCH = 20;
 
-interface GraphNode {
+interface GraphNode extends MergeFields {
   __typename?: string;
   number?: number;
   title?: string;
@@ -42,10 +43,8 @@ interface GraphNode {
   url?: string;
   // The issue this one is a sub-issue of, which is what the Add card dialog offers siblings from.
   parent?: { number?: number } | null;
-  // Only a pull request answers these five.
-  isDraft?: boolean;
+  // Only a pull request answers these, with the merge fields of `MergeFields`.
   author?: { login?: string } | null;
-  reviewDecision?: string | null;
   headRefOid?: string | null;
   // The newest APPROVED or CHANGES_REQUESTED review of each reviewer, which only the open list asks for.
   latestOpinionatedReviews?: {
@@ -62,7 +61,6 @@ interface GraphNode {
   deletions?: number;
   changedFiles?: number;
   headRefName?: string | null;
-  baseRefName?: string | null;
 }
 
 interface GraphAnswer {
@@ -252,6 +250,9 @@ export interface PullRequest {
   // the commit it was given on. Only the open list reads it, and it is left out when that login gave
   // none. Not `decision`: GitHub says APPROVED there once the required approvals are in, from anyone.
   ownReview?: { state: string; at: string | null; oid: string | null };
+  // Why it cannot merge. Only the branch lookup and `readMergeStates` ask, and it is left out of every
+  // other answer, so a read that did not ask never reads as nothing blocking.
+  merge?: MergeRead;
 }
 
 export interface PullResult {
@@ -310,6 +311,7 @@ const pullFrom = (repo: string, node: GraphNode): PullRequest => ({
   ...count('changedFiles', node.changedFiles),
   ...text('headRef', node.headRefName),
   ...text('baseRef', node.baseRefName),
+  ...(node.mergeStateStatus === undefined ? {} : { merge: mergeBlockers(node) }),
 });
 
 // The viewer's own row of a pull request's opinionated reviews, the newest when there are more. Logins
@@ -421,8 +423,13 @@ export async function listOpenPulls(run: RunGh, repo: { owner: string; repo: str
  * Limit: the newest ten per branch, which is plenty once forks are passed over. A branch reused
  * for more pull requests than that reads its newest ten.
  */
-// What a closed card's pull request block reads besides the card fields.
-const BRANCH_FIELDS = 'mergedBy { login } mergedAt createdAt additions deletions changedFiles headRefName baseRefName';
+// Why an open pull request cannot merge, which `mergeBlockers` reads. The two fragments are the two kinds
+// of check a rollup holds: a check run, such as a GitHub Actions job, and a commit status.
+const MERGE_FIELDS =
+  'mergeable mergeStateStatus statusCheckRollup { state contexts(first: 20) { nodes { __typename ... on CheckRun { name conclusion status detailsUrl } ... on StatusContext { context state targetUrl } } } }';
+
+// What a closed card's pull request block reads besides the card fields, and the merge fields.
+const BRANCH_FIELDS = `mergedBy { login } mergedAt createdAt additions deletions changedFiles headRefName baseRefName ${MERGE_FIELDS}`;
 
 export const branchPullsQuery = (asks: readonly { owner: string; repo: string; branch: string }[]): string => {
   const parts = asks.map((ask, index) => {
@@ -477,6 +484,21 @@ export async function findBranchPulls(run: RunGh, asks: readonly { owner: string
   const batches = await Promise.all(
     chunk(asks, BATCH).map(async (batch) => readBranchPulls(batch, (await run(['api', 'graphql', '-f', `query=${branchPullsQuery(batch)}`], signal)).stdout)),
   );
+  return batches.flat();
+}
+
+/**
+ * Linked pull requests read again by number, for the timer that keeps why each cannot merge fresh. The
+ * fields of the branch lookup, so the answer reads the same. Written from the GitHub schema like
+ * `pullQuery`, and never read from the API.
+ */
+export const mergeQuery = (refs: readonly { owner: string; repo: string; number: number }[]): string =>
+  document(refs, `... on PullRequest { ${BRANCH_FIELDS} ${PULL_FIELDS} }`);
+
+// One call per twenty pull requests, read the way `readPulls` reads, so one that is gone or unreadable
+// answers no pull request and leaves the others alone. A call that fails whole throws.
+export async function readMergeStates(run: RunGh, refs: readonly { owner: string; repo: string; number: number }[], signal: AbortSignal): Promise<PullResult[]> {
+  const batches = await Promise.all(chunk(refs, BATCH).map(async (batch) => readPulls(batch, (await run(['api', 'graphql', '-f', `query=${mergeQuery(batch)}`], signal)).stdout)));
   return batches.flat();
 }
 

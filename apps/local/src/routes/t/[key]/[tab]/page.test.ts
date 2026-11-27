@@ -266,6 +266,25 @@ it('loads the pull requests of a Delivery card on the PRs tab', async () => {
   expect(data.prDiscussions?.map((one) => [one.ref, one.messages[0]?.body, one.messages[0]?.unread])).toEqual([['T1', 'Looks close.', true]]);
 });
 
+// Why the pull request cannot merge reaches the overview off the database, only from Review to Wrap-up.
+it('loads why the open pull requests cannot merge on the overview of a card from Review to Wrap-up', async () => {
+  createCard(db, { key: 'APP-31', board: 'delivery', stage: 'pr-watch', title: 'APP-31 title' });
+  saveCardPull(db, 'APP-31', { repo: 'example/api', number: 8, url: null, foundBy: 'branch', state: 'open', merge: { blockers: [{ kind: 'draft' }], running: false } });
+  saveCardPull(db, 'APP-31', { repo: 'example/web', number: 2, url: null, foundBy: 'branch', state: 'merged', merge: { blockers: [{ kind: 'draft' }], running: false } });
+  const at = (stage: string) =>
+    page({
+      params: { key: 'APP-31', tab: 'overview' },
+      parent: async () => ({ tabs: tabsFor('delivery', stage), ticket: { key: 'APP-31', board: 'delivery', stage } }),
+      request: new Request('http://localhost/t/APP-31/overview'),
+      url: new URL('http://localhost/t/APP-31/overview'),
+    }) as unknown as Promise<{ merge: { repo: string; number: number; read: unknown; at: string }[] }>;
+
+  const data = await at('pr-watch');
+  expect(data.merge.map((one) => [one.repo, one.number, one.read])).toEqual([['example/api', 8, { blockers: [{ kind: 'draft' }], running: false }]]);
+  expect(Date.parse(data.merge[0]?.at ?? '')).not.toBeNaN();
+  expect((await at('implement')).merge).toEqual([]);
+});
+
 // The Review tab, end to end: the round file in the card folder reaches the page as blocks.
 it('loads the round of findings on the Review tab of a PR reviews card', async () => {
   const folder = join(project, '.tasks', 'APP-5', 'pr-review');

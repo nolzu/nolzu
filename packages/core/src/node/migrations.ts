@@ -839,6 +839,12 @@ export const migrations: readonly string[] = [
     at TEXT NOT NULL
   ) STRICT;
   `,
+  `
+  -- Why a card's pull request cannot merge, as the last read that asked saw it (JSON, MergeRead), and
+  -- when that read was. Null before such a read. A failed read leaves both as they were.
+  ALTER TABLE card_pulls ADD COLUMN merge TEXT;
+  ALTER TABLE card_pulls ADD COLUMN merge_at TEXT;
+  `,
 ];
 
 // The machine database, one per data folder whatever the number of projects. Its own list with its own

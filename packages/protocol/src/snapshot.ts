@@ -71,6 +71,25 @@ export interface PullView {
   ended?: 'closed' | 'merged';
 }
 
+// One reason a pull request cannot merge, as `mergeBlockers` in core reads it off GitHub's answer.
+// `base` is the branch it goes into, null when the answer did not name it. `url` is the pull request.
+export type MergeBlocker =
+  | { kind: 'checks'; failed: readonly { name: string; url: string | null }[] }
+  | { kind: 'conflict'; base: string | null }
+  | { kind: 'behind'; base: string | null }
+  | { kind: 'approval' }
+  | { kind: 'changes' }
+  | { kind: 'draft' }
+  | { kind: 'unknown' }
+  | { kind: 'blocked'; url: string | null };
+
+// What one read of a pull request said about its merge. Running checks hold the merge too, but they
+// end by themselves, so they are a state and no reason.
+export interface MergeRead {
+  blockers: readonly MergeBlocker[];
+  running: boolean;
+}
+
 // The card as the board draws it. There is no elapsed number and no ticking cost here: the
 // run start travels instead and the browser counts, so a running agent does not produce a
 // snapshot every second.
@@ -114,6 +133,9 @@ export interface CardView {
   // not fixed yet, and rows with a message not seen on the PRs tab. Left out at none of either, on a
   // closed card and on every other board. Local only: the hub frame is built apart and never has it.
   feedback?: { toFix: number; unread: number };
+  // Why the open pull requests of a Delivery card from Review to Wrap-up cannot merge, as the last read
+  // stored it, in the order the chip names them. Left out when nothing blocks or nothing was read.
+  blockers?: readonly MergeBlocker[];
   // Set on a card made from a pull request or with one PR watch found, and null on every other card.
   pull: PullView | null;
   // What each phase starts on for this card, when the card stores models of its own. Null when it

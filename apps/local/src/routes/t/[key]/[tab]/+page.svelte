@@ -518,6 +518,7 @@
     linkSystem={data.overview.linkSystem ?? null}
     planHref={filesAt('plan/plan.md')}
     planOpen={data.overview.planOpen}
+    merge={data.merge}
     closed={knowledge === null ? null : { knowledge, knowledgeHref: resolve('/knowledge'), onpulls: data.pulls ? readPulls : null, onrevert: revert, diffsWaiting: patches.current === null }}
     changesHref={data.hasChanges ? resolve('/t/[key]/[tab]', { key, tab: 'changes' }) : null}
     ticket={data.overview.ticket}

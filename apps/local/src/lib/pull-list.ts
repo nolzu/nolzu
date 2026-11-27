@@ -1,8 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { boardFor, canMove, projectRepos, tabsFor } from '@nolzu/core';
+import { boardFor, canMove, projectRepos, tabsFor, WATCHED_STAGES } from '@nolzu/core';
 import { boardOfCard, bumpVersion, cardDiscussions, cardPullRows, cardRepos, createCard, detachCardPull, type DiscussionInput, getSetting, markDiscussion, markDiscussionsSeen, recordMove, reposOfCard, saveCardPull, setCardRepos, type StoredCardPull, storeDiscussions, writeSetting } from '@nolzu/core/node';
 import { type CardState, pullRequestRef, type PullDecision, type PullState } from '@nolzu/protocol';
-import { branchPullsQuery, checkoutPath, findBranchPulls, getPull, ghRunner, git, gitEnv, isPlainName, issueKey, listOpenPulls, type PullDiscussions, type PullRequest, readPullDiscussions, type RunGh } from '@nolzu/runner';
+import { branchPullsQuery, checkoutPath, findBranchPulls, getPull, ghRunner, git, gitEnv, isPlainName, issueKey, listOpenPulls, type PullDiscussions, type PullRequest, readMergeStates, readPullDiscussions, type RunGh } from '@nolzu/runner';
 import { cardBranch, cardCheckouts } from './checkout.ts';
 import { READ_TIMEOUT_MS, remoteRepo } from './create-card.ts';
 
@@ -379,16 +379,12 @@ export async function refreshDeliveryPulls(db: DatabaseSync, run: RunGh, signal:
   return { said: parts.join(' '), read: writes.map((write) => write.key) };
 }
 
-// The columns where a Delivery card's pull request is looked for by itself: once a person reads the
-// change, until the card is closed.
-const WATCHED = ['review', 'pr-watch', 'wrapup'];
-
 /** The Delivery cards from Review to Wrap-up that have no pull request linked yet, by key. */
 export function unlinkedCards(db: DatabaseSync): string[] {
   return (
     db
-      .prepare(`SELECT key FROM cards WHERE board = 'delivery' AND stage IN (${WATCHED.map(() => '?').join(', ')}) AND key NOT IN (SELECT card_key FROM card_pulls) ORDER BY key`)
-      .all(...WATCHED) as { key: string }[]
+      .prepare(`SELECT key FROM cards WHERE board = 'delivery' AND stage IN (${WATCHED_STAGES.map(() => '?').join(', ')}) AND key NOT IN (SELECT card_key FROM card_pulls) ORDER BY key`)
+      .all(...WATCHED_STAGES) as { key: string }[]
   ).map((one) => one.key);
 }
 
@@ -431,13 +427,44 @@ export async function linkOpenPulls(db: DatabaseSync, keys: readonly string[], r
       return one?.read === true && one.pull?.state === 'open' && ask !== undefined ? [{ ask, pull: one.pull }] : [];
     });
     if (open.length === 0) continue;
-    for (const { ask, pull } of open) saveCardPull(db, card.key, { repo: `${ask.owner}/${ask.repo}`, number: pull.number, url: pull.url, foundBy: 'branch', title: pull.title, state: pull.state });
+    for (const { ask, pull } of open) saveCardPull(db, card.key, { repo: `${ask.owner}/${ask.repo}`, number: pull.number, url: pull.url, foundBy: 'branch', title: pull.title, state: pull.state, merge: pull.merge });
     const pull = cardPull(open.map((one) => one.pull));
     if (pull !== null) db.prepare("UPDATE cards SET pr_author = ?, pr_decision = ?, pr_head_at = ?, pr_draft = ?, pr_state = ? WHERE key = ? AND board = 'delivery'").run(pull.author, pull.decision, pull.headCommittedAt, pull.draft ? 1 : 0, pull.state, card.key);
     linked.push(card.key);
   }
   if (linked.length > 0) bumpVersion(db);
   return linked;
+}
+
+/**
+ * Reads the open pull requests linked to Delivery cards from Review to Wrap-up again by number, found
+ * by the branch or attached, and stores why each cannot merge with its title and state. One gh document
+ * per twenty pull requests. A merged or closed one is not asked again, because its row no longer reads
+ * open. One GitHub did not answer for keeps what the last read stored, and a gh that fails throws before
+ * anything is written. Answers the cards whose stored answer changed.
+ */
+export async function rereadOpenPulls(db: DatabaseSync, run: RunGh, signal: AbortSignal): Promise<string[]> {
+  const rows = db
+    .prepare(
+      `SELECT p.card_key AS card, p.repo, p.number, p.state, p.merge FROM card_pulls p JOIN cards c ON c.key = p.card_key
+       WHERE c.board = 'delivery' AND c.stage IN (${WATCHED_STAGES.map(() => '?').join(', ')}) AND p.state = 'open' ORDER BY p.id`,
+    )
+    .all(...WATCHED_STAGES) as { card: string; repo: string; number: number; state: string; merge: string | null }[];
+  if (rows.length === 0) return [];
+  const refs = rows.map((row) => {
+    const [owner = '', repo = ''] = row.repo.split('/');
+    return { owner, repo, number: row.number };
+  });
+  const found = await readMergeStates(run, refs, signal);
+  const changed = new Set<string>();
+  for (const [at, row] of rows.entries()) {
+    const pull = found[at]?.pull;
+    if (pull == null) continue;
+    saveCardPull(db, row.card, { repo: row.repo, number: row.number, url: pull.url, foundBy: 'branch', title: pull.title, state: pull.state, merge: pull.merge });
+    if (pull.state !== row.state || (pull.merge !== undefined && JSON.stringify(pull.merge) !== row.merge)) changed.add(row.card);
+  }
+  if (changed.size > 0) bumpVersion(db);
+  return [...changed];
 }
 
 // The POST /api/board/pulls?board=delivery handler. A failed lookup writes nothing and tells nobody,
@@ -526,7 +553,7 @@ export async function readCardDiscussions(db: DatabaseSync, key: string, run: Ru
   for (const [at, ask] of asks.entries()) {
     const one = found[at];
     if (one?.read !== true) notes.push(`GitHub did not answer for ${ask.owner}/${ask.repo}. The repository may be gone, or this login cannot open it.`);
-    else if (one.pull !== null) saveCardPull(db, key, { repo: `${ask.owner}/${ask.repo}`, number: one.pull.number, url: one.pull.url, foundBy: 'branch', title: one.pull.title, state: one.pull.state });
+    else if (one.pull !== null) saveCardPull(db, key, { repo: `${ask.owner}/${ask.repo}`, number: one.pull.number, url: one.pull.url, foundBy: 'branch', title: one.pull.title, state: one.pull.state, merge: one.pull.merge });
   }
 
   const pulls = cardPullRows(db, key);

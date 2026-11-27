@@ -22,4 +22,5 @@ export * from './onboarding.ts';
 export * from './knowledge.ts';
 export * from './repositories-line.ts';
 export * from './output-check.ts';
+export * from './merge.ts';
 export * from './attribution.ts';

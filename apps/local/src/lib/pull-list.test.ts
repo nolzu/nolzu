@@ -8,7 +8,7 @@ import { boardSnapshot, boardVersion, cardDiscussions, cardPullRows, createCard,
 import { branchName, type PullRequest, type RunGh } from '@nolzu/runner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHubSync } from './hub-sync.ts';
-import { cardPull, cardPulls, deletePullLink, linkOpenPulls, patchDiscussion, postCardDiscussions, postDeliveryPulls, postDiscussionsSeen, postPullLink, postPullRefresh, readCardDiscussions, refreshDeliveryPulls, refreshPulls, unlinkedCards } from './pull-list.ts';
+import { cardPull, cardPulls, deletePullLink, linkOpenPulls, patchDiscussion, postCardDiscussions, postDeliveryPulls, postDiscussionsSeen, postPullLink, postPullRefresh, readCardDiscussions, refreshDeliveryPulls, refreshPulls, rereadOpenPulls, unlinkedCards } from './pull-list.ts';
 
 // A DOCUMENTED SHAPE NOBODY HAS MEASURED. The `gh` here is a stub, and no test calls GitHub. Both
 // answers are written from the GitHub GraphQL schema, the way the fixtures in
@@ -937,6 +937,17 @@ describe('PR watch', () => {
       expect(linked()).toEqual([]);
     });
 
+    // The branch lookup carries why it cannot merge, so linking stores it with no second call.
+    it('stores why a linked pull request cannot merge', async () => {
+      const at = checkout();
+      git(at, 'update-ref', `refs/remotes/origin/${BRANCH}`, 'HEAD');
+      git(at, 'branch', `--set-upstream-to=origin/${BRANCH}`);
+      heads[`recipes@${BRANCH}`] = [pull(12, { mergeable: 'MERGEABLE', mergeStateStatus: 'BEHIND', baseRefName: 'main', statusCheckRollup: null })];
+
+      await linkOpenPulls(db, ['APP-1'], both, AbortSignal.timeout(5000));
+      expect(cardPullRows(db, 'APP-1')[0]?.merge).toEqual({ blockers: [{ kind: 'behind', base: 'main' }], running: false });
+    });
+
     it('watches the cards from Review to Wrap-up that have no pull request linked', () => {
       createCard(db, { key: 'APP-2', board: 'delivery', stage: 'review', title: 'Two' });
       createCard(db, { key: 'APP-3', board: 'delivery', stage: 'implement', title: 'Three' });
@@ -945,6 +956,84 @@ describe('PR watch', () => {
       saveCardPull(db, 'APP-5', { repo: 'cook/recipes', number: 3, url: null, foundBy: 'attached' });
 
       expect(unlinkedCards(db)).toEqual(['APP-1', 'APP-2']);
+    });
+  });
+
+  // The timer reads the linked open pull requests again by number, so why each cannot merge stays fresh.
+  describe('the linked pull requests read again', () => {
+    // GitHub by number: the merge fields of each pull request this stub holds, or a call that fails.
+    let held: Record<number, Record<string, unknown>> = {};
+    let numbers: number[] = [];
+    const byNumber: RunGh = async (args) => {
+      const query = args[3] ?? '';
+      const asks = [...query.matchAll(/issueOrPullRequest\(number: (\d+)\)/g)].map((one) => Number(one[1]));
+      numbers.push(...asks);
+      const data = Object.fromEntries(asks.map((number, at) => [`t${at}`, held[number] === undefined ? null : { issueOrPullRequest: pull(number, held[number]) }]));
+      return { code: 0, stdout: JSON.stringify({ data }), stderr: '' };
+    };
+    const conflict = { mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY', baseRefName: 'main', statusCheckRollup: null };
+    const reread = (run: RunGh = byNumber) => rereadOpenPulls(db, run, AbortSignal.timeout(5000));
+    const mergeOf = (key: string) => cardPullRows(db, key).map((one) => [one.number, one.state, one.merge?.blockers.map((blocker) => blocker.kind) ?? null]);
+
+    beforeEach(() => {
+      held = {};
+      numbers = [];
+    });
+
+    it('asks for each open one on a card from Review to Wrap-up, found by the branch or attached, and stores the answer', async () => {
+      saveCardPull(db, 'APP-1', { repo: 'cook/recipes', number: 12, url: null, foundBy: 'branch', state: 'open' });
+      saveCardPull(db, 'APP-1', { repo: 'cook/recipes', number: 14, url: null, foundBy: 'attached', state: 'open' });
+      createCard(db, { key: 'APP-2', board: 'delivery', stage: 'implement', title: 'Not watched' });
+      saveCardPull(db, 'APP-2', { repo: 'cook/recipes', number: 13, url: null, foundBy: 'branch', state: 'open' });
+      held = { 12: conflict, 14: { mergeStateStatus: 'CLEAN', mergeable: 'MERGEABLE', isDraft: true } };
+
+      const version = boardVersion(db);
+      expect(await reread()).toEqual(['APP-1']);
+
+      expect(numbers).toEqual([12, 14]);
+      expect(mergeOf('APP-1')).toEqual([
+        [12, 'open', ['conflict']],
+        [14, 'open', ['draft']],
+      ]);
+      expect(boardVersion(db)).toBeGreaterThan(version);
+      expect(boardSnapshot(db, { wall: { ready: true }, board: deliveryBoard('pull-request'), queue: createQueue(3), models: { 'claude-code': ['sonnet'] } }).cards.find((card) => card.key === 'APP-1')?.blockers?.map((one) => one.kind)).toEqual(['conflict', 'draft']);
+    });
+
+    it('marks a pull request that merged, and does not ask for it again', async () => {
+      saveCardPull(db, 'APP-1', { repo: 'cook/recipes', number: 12, url: null, foundBy: 'branch', state: 'open' });
+      held = { 12: { state: 'MERGED', mergeStateStatus: 'UNKNOWN' } };
+
+      await reread();
+      expect(cardPullRows(db, 'APP-1')[0]?.state).toBe('merged');
+      numbers = [];
+      expect(await reread()).toEqual([]);
+      expect(numbers).toEqual([]);
+    });
+
+    it('keeps the last answer when GitHub does not answer for one, or the call fails', async () => {
+      saveCardPull(db, 'APP-1', { repo: 'cook/recipes', number: 12, url: null, foundBy: 'branch', state: 'open' });
+      held = { 12: conflict };
+      await reread();
+
+      held = {};
+      expect(await reread()).toEqual([]);
+      expect(mergeOf('APP-1')).toEqual([[12, 'open', ['conflict']]]);
+
+      await expect(
+        reread(async () => {
+          throw new Error('gh: not logged in');
+        }),
+      ).rejects.toThrow('not logged in');
+      expect(mergeOf('APP-1')).toEqual([[12, 'open', ['conflict']]]);
+    });
+
+    it('tells nobody when the answer is the one stored', async () => {
+      saveCardPull(db, 'APP-1', { repo: 'cook/recipes', number: 12, url: null, foundBy: 'branch', state: 'open' });
+      held = { 12: conflict };
+      expect(await reread()).toEqual(['APP-1']);
+      const version = boardVersion(db);
+      expect(await reread()).toEqual([]);
+      expect(boardVersion(db)).toBe(version);
     });
   });
 
@@ -961,6 +1050,15 @@ describe('PR watch', () => {
       expect(boardVersion(db)).toBe(version + 2);
       expect(await response.json()).toEqual({ said: 'Looked up the pull requests of 1 card in the Pull request column or later. Open: APP-1.' });
       expect(told).toEqual(['told']);
+    });
+
+    // The press reads the same fields the timer does, so the board and the card page draw it at once.
+    it('stores why the pull request cannot merge', async () => {
+      heads[`recipes@${BRANCH}`] = [pull(12, { reviewDecision: 'CHANGES_REQUESTED', mergeStateStatus: 'BLOCKED', mergeable: 'MERGEABLE', statusCheckRollup: null })];
+
+      await postDeliveryPulls(db, () => {}, both);
+
+      expect(cardPullRows(db, 'APP-1')[0]?.merge).toEqual({ blockers: [{ kind: 'changes' }], running: false });
     });
 
     // gh's own sentence, the one the PR reviews board shows for the same fault.

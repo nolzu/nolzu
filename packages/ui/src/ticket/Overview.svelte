@@ -9,6 +9,8 @@
   import AnswerComposer from './AnswerComposer.svelte';
   import Block from './Block.svelte';
   import ClosedCard from './ClosedCard.svelte';
+  import MergeBlock from './MergeBlock.svelte';
+  import { type MergePull, mergeShown } from './merge.ts';
   import GateBlock from './GateBlock.svelte';
   import Ago from './Ago.svelte';
   import { epicProgress, epicTaskRows, landLine, type TaskRow } from './epic.ts';
@@ -41,6 +43,7 @@
     sharePlan = null,
     linkSystem = null,
     closed = null,
+    merge = [],
     checkouts,
     changesHref,
     ticket,
@@ -104,6 +107,9 @@
     // What a closed card shows under its summary, and null on an open card. `checkouts` is the page's
     // own section, the column's last line.
     closed?: Omit<ComponentProps<typeof ClosedCard>, 'checkouts'> | null;
+    // The open pull requests of a Delivery card from Review to Wrap-up with why each cannot merge, as the
+    // last read stored them. Empty on every other card.
+    merge?: readonly MergePull[];
     checkouts?: Snippet;
     // Null on a board with no Changes tab, where the link would lead to a page that is not there.
     changesHref: string | null;
@@ -186,6 +192,7 @@
   } = $props();
 
   const steps = $derived(plan === null ? null : parsePlan(plan));
+  const mergePulls = $derived(mergeShown(merge));
   // A QA FAIL opens the column with the red box, and its change follows under What happened.
   const failedView = $derived(qa != null && qa.failed != null);
   const change = $derived(built ?? (summary === null ? null : { summary, phase: summaryPhase, at: summaryAt }));
@@ -621,6 +628,10 @@
             </a>
           {/each}
         </div>
+      {/if}
+
+      {#if mergePulls.length > 0}
+        <MergeBlock pulls={mergePulls} now={clock} />
       {/if}
 
       {#if closed !== null}

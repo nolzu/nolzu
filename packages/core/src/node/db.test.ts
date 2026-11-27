@@ -115,6 +115,21 @@ it('adds the findings table to a database that already holds sources', () => {
   ]);
 });
 
+// Forty-nine, counted, for the same reason as the counts above. A pull request a card held before the
+// merge read has none until the next read asks.
+it('adds the merge read to the pull requests a card already holds', () => {
+  const older = open(migrations.slice(0, 49));
+  older.prepare("INSERT INTO cards (key, board, stage, title) VALUES ('APP-1', 'delivery', 'review', 'Search')").run();
+  older.prepare("INSERT INTO card_pulls (card_key, repo, number, state, found_by) VALUES ('APP-1', 'cook/recipes', 12, 'open', 'branch')").run();
+  expect(() => older.prepare('SELECT merge FROM card_pulls').all()).toThrow(/no such column/);
+  older.close();
+
+  const db = open();
+
+  expect(userVersion(db)).toBe(migrations.length);
+  expect(db.prepare('SELECT number, merge, merge_at FROM card_pulls').all()).toEqual([{ number: 12, merge: null, merge_at: null }]);
+});
+
 // The project-wide stack hook became your own commands under '*' on Start the app. Forty-four, counted,
 // for the same reason as the counts above.
 describe('the move of the stack hook to Start the app', () => {
