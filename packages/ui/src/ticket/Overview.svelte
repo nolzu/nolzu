@@ -44,6 +44,7 @@
     linkSystem = null,
     closed = null,
     merge = [],
+    fixCi = null,
     checkouts,
     changesHref,
     ticket,
@@ -110,6 +111,8 @@
     // The open pull requests of a Delivery card from Review to Wrap-up with why each cannot merge, as the
     // last read stored them. Empty on every other card.
     merge?: readonly MergePull[];
+    // Fix CI beside the failed checks, as `MergeBlock` takes it. Null draws no button.
+    fixCi?: ComponentProps<typeof MergeBlock>['fixCi'];
     checkouts?: Snippet;
     // Null on a board with no Changes tab, where the link would lead to a page that is not there.
     changesHref: string | null;
@@ -631,7 +634,7 @@
       {/if}
 
       {#if mergePulls.length > 0}
-        <MergeBlock pulls={mergePulls} now={clock} />
+        <MergeBlock pulls={mergePulls} now={clock} {fixCi} />
       {/if}
 
       {#if closed !== null}

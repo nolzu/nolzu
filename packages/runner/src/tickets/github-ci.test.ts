@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { defaultBranch, failedRuns, readRuns } from './github-ci.ts';
+import { afterEach, describe, expect, it } from 'vitest';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { defaultBranch, failedRuns, ghLogRunner, LOG_MAX_STDOUT, LOG_TOO_LARGE, readJobLog, readRuns, trimLog } from './github-ci.ts';
 import type { RunGh } from './github.ts';
 
 /**
@@ -151,5 +154,120 @@ describe('failedRuns', () => {
     const { run } = gh(JSON.stringify({ message: 'Not Found' }), runs());
 
     await expect(failedRuns(run, 'acme', 'app', 20, live())).rejects.toThrow(/on the Scout page/);
+  });
+});
+
+// Fix CI keeps the end of a job's log, where a failed job says why.
+describe('trimLog', () => {
+  const lines = (count: number) => Array.from({ length: count }, (_, at) => `line ${at + 1}`).join('\n');
+
+  it('keeps a short log whole and says nothing was cut', () => {
+    expect(trimLog('one\ntwo\n')).toEqual({ text: 'one\ntwo', cut: false, total: 2 });
+  });
+
+  it('keeps the last lines up to the line cap', () => {
+    const kept = trimLog(lines(500), 300, 60_000);
+    expect(kept.cut).toBe(true);
+    expect(kept.total).toBe(500);
+    expect(kept.text.split('\n')).toHaveLength(300);
+    expect(kept.text.startsWith('line 201\n')).toBe(true);
+    expect(kept.text.endsWith('line 500')).toBe(true);
+  });
+
+  it('keeps fewer lines when they pass the byte cap, counted in UTF-8 bytes', () => {
+    const wide = Array.from({ length: 10 }, (_, at) => `${at}${'é'.repeat(49)}`).join('\n');
+    // Each line is 99 bytes and its newline one more, so 300 bytes hold three.
+    expect(trimLog(wide, 300, 300).text.split('\n')).toHaveLength(3);
+    expect(trimLog(wide, 300, 300).text.startsWith('7')).toBe(true);
+  });
+
+  it('keeps the end of one last line that is longer than the byte cap', () => {
+    const kept = trimLog(`start\n${'a'.repeat(100)}END`, 300, 40);
+    expect(kept).toEqual({ text: `${'a'.repeat(7)}END`, cut: true, total: 2 });
+  });
+});
+
+/**
+ * Hand written. One read of a real failed public job confirmed the shapes these rest on: the job
+ * endpoint answers `head_sha`, and `gh api -X GET` on the logs endpoint follows the redirect and prints
+ * the log as plain text. The rate limit body is not confirmed: it is written from the API's docs.
+ */
+describe('readJobLog', () => {
+  const job = { owner: 'acme', repo: 'app', job: '456' };
+  const answers = (job: { code: number; stdout: string; stderr?: string }, log: { code: number; stdout: string; stderr?: string }) => {
+    const calls: string[][] = [];
+    const run: RunGh = async (args) => {
+      calls.push([...args]);
+      const one = args.at(-1)?.endsWith('/logs') ? log : job;
+      return { stderr: '', ...one };
+    };
+    return { run, calls };
+  };
+
+  it('reads the job for its head commit, then its log, both with GET', async () => {
+    const { run, calls } = answers({ code: 0, stdout: JSON.stringify({ id: 456, head_sha: '9f2c1ab0d4e5', run_id: 123 }) }, { code: 0, stdout: '2026-11-27T10:00:00Z Error: expected 2\n' });
+    expect(await readJobLog(run, job, AbortSignal.timeout(1000))).toEqual({ ok: true, log: '2026-11-27T10:00:00Z Error: expected 2\n', head: '9f2c1ab0d4e5' });
+    expect(calls).toEqual([
+      ['api', '-X', 'GET', 'repos/acme/app/actions/jobs/456'],
+      ['api', '-X', 'GET', 'repos/acme/app/actions/jobs/456/logs'],
+    ]);
+  });
+
+  it('answers gh\'s reason for a log GitHub does not hand over, and no head for one it did not name', async () => {
+    const { run } = answers({ code: 0, stdout: '{}' }, { code: 1, stdout: '{"message":"Not Found"}', stderr: 'gh: Not Found (HTTP 404)\n' });
+    expect(await readJobLog(run, job, AbortSignal.timeout(1000))).toEqual({ ok: false, why: 'GitHub did not hand over its log (gh: Not Found (HTTP 404)).' });
+  });
+
+  it('throws on a rate limit, which stops every other read too', async () => {
+    const { run } = answers({ code: 1, stdout: '{"message":"API rate limit exceeded for user ID 1."}', stderr: 'gh: API rate limit exceeded for user ID 1. (HTTP 403)' }, { code: 0, stdout: '' });
+    await expect(readJobLog(run, job, AbortSignal.timeout(1000))).rejects.toThrow("GitHub's rate limit for this gh login is used up, so the logs of acme/app were not read. Wait for it to reset, at most an hour, then press Fix CI again.");
+  });
+
+  it('calls nothing for a name that could leave the API path', async () => {
+    const { run, calls } = answers({ code: 0, stdout: '{}' }, { code: 0, stdout: '' });
+    expect(await readJobLog(run, { ...job, repo: 'app/../../x' }, AbortSignal.timeout(1000))).toEqual({ ok: false, why: 'The link names no job Nolzu can read.' });
+    expect(calls).toEqual([]);
+  });
+});
+
+// The log read has a cap and a sentence of its own: a log over the cap names that log, never "the
+// issue", and Fix CI goes on with the other checks. A `gh` of our own on a PATH of our own, as in
+// gh.test.ts; the real one is never spawned.
+describe('ghLogRunner', () => {
+  const made: string[] = [];
+  afterEach(() => {
+    for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+  const fakeGh = (logChars: number): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'nolzu-gh-log-'));
+    made.push(dir);
+    const out = `process.stdout.write(process.argv.at(-1).endsWith("/logs") ? "x".repeat(${logChars}) : JSON.stringify({ head_sha: "9f2c1ab" }))`;
+    writeFileSync(join(dir, 'gh'), `#!/bin/sh\n'${process.execPath}' -e '${out}' -- "$@"\n`);
+    chmodSync(join(dir, 'gh'), 0o755);
+    return dir;
+  };
+  const job = { owner: 'example', repo: 'recipes', job: '456' };
+
+  it('names a log over the cap as too large, and not the issue', async () => {
+    // More than one pipe chunk, because the runner checks the cap as each chunk arrives.
+    const dir = fakeGh(300_000);
+    const run = ghLogRunner({ path: () => dir, maxStdout: 1000 });
+    await expect(run(['api', '-X', 'GET', 'repos/example/recipes/actions/jobs/456/logs'], AbortSignal.timeout(10_000))).rejects.toThrow(LOG_TOO_LARGE);
+    await expect(run(['api', '-X', 'GET', 'repos/example/recipes/actions/jobs/456/logs'], AbortSignal.timeout(10_000))).rejects.not.toThrow(/issue/);
+    expect(await readJobLog(run, job, AbortSignal.timeout(10_000))).toEqual({ ok: false, why: 'The log is larger than Nolzu reads.' });
+  });
+
+  // Over the 4 MB every other gh read is held to, and under the log's own cap.
+  it('reads a log larger than the shared cap', async () => {
+    const dir = fakeGh(4_500_000);
+    const read = await readJobLog(ghLogRunner({ path: () => dir }), job, AbortSignal.timeout(10_000));
+    expect(read.ok && read.log.length).toBe(4_500_000);
+    expect(LOG_MAX_STDOUT).toBe(32_000_000);
+  });
+
+  it('throws what stops every read, such as a missing gh', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'nolzu-gh-log-'));
+    made.push(dir);
+    await expect(readJobLog(ghLogRunner({ path: () => dir }), job, AbortSignal.timeout(10_000))).rejects.toThrow(/gh is not on the PATH/);
   });
 });
