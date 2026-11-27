@@ -162,3 +162,31 @@ export function startOffer(stages: readonly StageView[] | undefined): StartOffer
   const estimate = next.starts?.estimate;
   return { first, stage: next.label, line: estimate === undefined ? target.command : `${target.command} · ${estimateShort(estimate)}`, refused: null };
 }
+
+// A ticket assigned to the person with no card in this project yet. A press posts `input` as the card's
+// input, the link or the key a person would paste.
+export interface MyTicket {
+  key: string;
+  title: string;
+  input: string;
+}
+
+// What the server read. `asked` is false when the project has no source to ask, and `problems` holds a
+// sentence for each source that failed.
+export interface MyTickets {
+  asked: boolean;
+  tickets: readonly MyTicket[];
+  problems: readonly string[];
+}
+
+// Under an empty field only, because a typed title or key is a card already on its way. Not on the PR
+// reviews board, which reads a GitHub number as a pull request.
+export function showMine(mine: MyTickets | null, board: BoardKind, input: string): mine is MyTickets {
+  return mine !== null && mine.asked && board !== 'prreview' && input.trim() === '';
+}
+
+// The line beside "Your tickets". Empty when a source failed and nothing came back, because its sentence says enough.
+export function mineLine(mine: MyTickets): string {
+  if (mine.tickets.length > 0) return `${mine.tickets.length} without a card`;
+  return mine.problems.length > 0 ? '' : 'Nothing assigned to you is waiting for a card.';
+}

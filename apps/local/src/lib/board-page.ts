@@ -1,6 +1,6 @@
 import { boardFor, canMove } from '@nolzu/core';
 import { type Board, type BoardChoice, type BoardKind, type BoardSnapshot, type CardState, type CardView, cardStarts, isBoardKind, type ResearchKind, type StageView, ticketLink } from '@nolzu/protocol';
-import { type Allowed, dropToast, type FixIt, fixItOf, keyStart, pushToast, type Refusal, refusalFromServer, refuseDrop, runView, type SendBack, sendBackOf, type ToastItem } from '@nolzu/ui';
+import { type Allowed, dropToast, type FixIt, fixItOf, keyStart, type MyTickets, pushToast, type Refusal, refusalFromServer, refuseDrop, runView, type SendBack, sendBackOf, type ToastItem } from '@nolzu/ui';
 import { forwardMove, postWrite, retryStage } from './ticket.ts';
 
 // What each column answers while a card is dragged: a move forward, a move back, or no move at all.
@@ -240,6 +240,18 @@ export async function nextKey(send: typeof fetch, url: string): Promise<string |
   } catch {
     return null;
   }
+}
+
+// The tickets assigned to the person with no card yet, for Add card's list. When the app does not answer,
+// the list says so in place of the tickets.
+export async function myTicketsOf(send: typeof fetch, url: string): Promise<MyTickets> {
+  try {
+    const response = await send(url);
+    if (response.ok) return (await response.json()) as MyTickets;
+  } catch {
+    // The same sentence as an answer that is not ok.
+  }
+  return { asked: true, tickets: [], problems: ['Your tickets were not read, because Nolzu did not answer. Check that it is still running.'] };
 }
 
 // What Add card sends, as far as the page reads it. Its go button sets `start`.

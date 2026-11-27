@@ -1,6 +1,6 @@
 import { choiceOf, parseTicketRef, type StageView } from '@nolzu/protocol';
 import { describe, expect, it } from 'vitest';
-import { canSubmit, cardKey, cardPayload, copyContext, pressOf, readInput, startOffer } from './add-card.ts';
+import { canSubmit, cardKey, cardPayload, copyContext, mineLine, pressOf, readInput, showMine, startOffer } from './add-card.ts';
 
 const PREFIX = 'APP';
 const ISSUE = 'Nolzu reads issue cook/recipes#12 from GitHub when you add the card.';
@@ -311,5 +311,26 @@ describe('readInput with ticket links', () => {
     expect(cardKey('PROJ-123', PREFIX, 'delivery', 'APP-4', 'jira')).toBe('PROJ-123');
     // The server reads the link, so the dialog sends it as typed and adds no title.
     expect(cardPayload({ input: JIRA, description: '' }, PREFIX)).toEqual({ input: JIRA });
+  });
+});
+
+describe('the list of your tickets', () => {
+  const row = { key: 'PROJ-2', title: 'Search by ingredient', input: 'PROJ-2' };
+  const answered = { asked: true, tickets: [row], problems: [] };
+
+  it('shows under an empty field once the server answered, on every board but PR reviews', () => {
+    expect(showMine(answered, 'delivery', '')).toBe(true);
+    expect(showMine(answered, 'epics', '  ')).toBe(true);
+    expect(showMine(answered, 'prreview', '')).toBe(false);
+    expect(showMine(answered, 'delivery', 'Sort the list')).toBe(false);
+    expect(showMine(null, 'delivery', '')).toBe(false);
+    // A project with no GitHub origin and no Jira has nothing to list, so no frame is drawn.
+    expect(showMine({ asked: false, tickets: [], problems: [] }, 'delivery', '')).toBe(false);
+  });
+
+  it('counts the tickets, says so quietly when there are none, and leaves a failure to its own sentence', () => {
+    expect(mineLine({ ...answered, tickets: [row, { ...row, key: 'PROJ-3' }, { ...row, key: 'PROJ-4' }] })).toBe('3 without a card');
+    expect(mineLine({ ...answered, tickets: [] })).toBe('Nothing assigned to you is waiting for a card.');
+    expect(mineLine({ asked: true, tickets: [], problems: ['gh is not logged in to GitHub. Run gh auth login in a terminal, then try again.'] })).toBe('');
   });
 });

@@ -20,7 +20,7 @@ import { prefixFree } from './onboard.ts';
  */
 
 // Where every sentence below sends the person, because that is where the fix is.
-const ON_INTEGRATIONS = 'Connect Jira again in Settings, Integrations at /settings/integrations.';
+export const ON_INTEGRATIONS ='Connect Jira again in Settings, Integrations at /settings/integrations.';
 
 // One GET that waits no longer than a ticket read does, so a slow site never holds a save.
 export const CLASH_TIMEOUT_MS = 5000;
@@ -130,8 +130,8 @@ export function switchTickets(db: DatabaseSync, value: string): string | null {
 /**
  * The Jira adapter Add card reads a key with, or null on a local project.
  *
- * Called only once a person gave a key or a Jira link, never on a page load, because a keychain read
- * can put a password dialog in front of them. The setting is read first, so a local project never
+ * Called only once a person gave a key or a Jira link, or opened Add card, which lists their tickets.
+ * Never on a page load, because a keychain read can put a password dialog in front of them. The setting is read first, so a local project never
  * touches the keychain at all.
  */
 export async function jiraReader(db: DatabaseSync, keychain: Keychain, fetcher?: JiraFetch): Promise<TicketAdapter | null> {

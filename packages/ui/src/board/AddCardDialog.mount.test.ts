@@ -706,3 +706,97 @@ it('marks Add and start busy while it sends, not Add to Inbox, and sends once', 
   await settle();
   expect(ui.go()?.hasAttribute('aria-busy')).toBe(false);
 });
+
+describe('Your tickets', () => {
+  const MINE = {
+    asked: true,
+    tickets: [
+      { key: 'recipes-web#9', title: 'Search by ingredient', input: 'https://github.com/bake/recipes-web/issues/9' },
+      { key: 'PROJ-2', title: 'Plan a week of meals', input: 'PROJ-2' },
+    ],
+    problems: [] as string[],
+  };
+
+  function drawMine(mine: () => Promise<typeof MINE>, onsubmit: (payload: unknown) => Promise<Made> = async () => ({ ok: true, key: 'PROJ-2', note: null }), board: BoardKind = 'delivery') {
+    const asked = vi.fn(mine);
+    const sent = vi.fn(onsubmit);
+    const onclose = vi.fn();
+    page = mounted(AddCardDialog as never, { prefix: 'APP', board, onsubmit: sent, onclose, mine: asked });
+    const target = page.target;
+    const row = (key: string) => target.querySelector<HTMLButtonElement>(`[data-mine-ticket="${key}"]`);
+    return { target, asked, sent, onclose, row, list: () => target.querySelector('[data-mine]') };
+  }
+
+  it('asks once as it opens and lists each ticket with its key and title', async () => {
+    const ui = drawMine(async () => MINE);
+    await settle();
+
+    expect(ui.asked).toHaveBeenCalledOnce();
+    expect(ui.list()?.textContent).toContain('Your tickets');
+    expect(ui.list()?.textContent).toContain('2 without a card');
+    expect(ui.row('PROJ-2')?.textContent).toBe('PROJ-2Plan a week of meals');
+  });
+
+  // The same body a pasted key or link sends, on the board the dialog opened on, and no start.
+  it('adds the pressed ticket as its link or key would, and closes', async () => {
+    const ui = drawMine(async () => MINE);
+    await settle();
+
+    ui.row('recipes-web#9')!.click();
+    await settle();
+
+    expect(ui.sent).toHaveBeenCalledWith({ input: 'https://github.com/bake/recipes-web/issues/9', board: 'delivery' });
+    expect(ui.onclose).toHaveBeenCalledOnce();
+  });
+
+  it('marks the pressed row busy, sends once, and shows a refusal', async () => {
+    let answer: (made: Made) => void = () => undefined;
+    const ui = drawMine(async () => MINE, () => new Promise<Made>((done) => (answer = done)));
+    await settle();
+
+    ui.row('PROJ-2')!.click();
+    flushSync();
+    ui.row('recipes-web#9')!.click();
+    flushSync();
+
+    expect(ui.sent).toHaveBeenCalledOnce();
+    expect(ui.row('PROJ-2')?.getAttribute('aria-busy')).toBe('true');
+    expect(ui.row('recipes-web#9')?.hasAttribute('aria-busy')).toBe(false);
+    answer({ ok: false, reason: 'PROJ-2 could not be read from Jira. The call failed, so the ticket may still be there. Try again.' });
+    await settle();
+    expect(ui.target.querySelector('[role="alert"]')?.textContent).toContain('PROJ-2 could not be read from Jira');
+    expect(ui.onclose).not.toHaveBeenCalled();
+  });
+
+  it('gives a failed source its own sentence, and one quiet line when there is nothing', async () => {
+    const failed = drawMine(async () => ({ asked: true, tickets: [], problems: ['gh is not logged in to GitHub. Run gh auth login in a terminal, then try again.'] }));
+    await settle();
+    expect(failed.list()?.textContent).toContain('gh is not logged in to GitHub. Run gh auth login in a terminal, then try again.');
+    expect(failed.list()?.querySelector('ul')).toBeNull();
+    page?.remove();
+
+    const none = drawMine(async () => ({ ...MINE, tickets: [] }));
+    await settle();
+    expect(none.list()?.textContent).toContain('Nothing assigned to you is waiting for a card.');
+    expect(none.list()?.querySelector('ul')).toBeNull();
+  });
+
+  it('hides the list while something is typed', async () => {
+    const ui = drawMine(async () => MINE);
+    await settle();
+    const field = ui.target.querySelector<HTMLInputElement>('#card-input')!;
+    field.value = 'Sort the list';
+    field.dispatchEvent(new Event('input'));
+    flushSync();
+
+    expect(ui.list()).toBeNull();
+  });
+
+  it('asks nothing on the PR reviews board', async () => {
+    const ui = drawMine(async () => MINE, undefined, 'prreview');
+    await settle();
+
+    expect(ui.asked).not.toHaveBeenCalled();
+    expect(ui.list()).toBeNull();
+  });
+});

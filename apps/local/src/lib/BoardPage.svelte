@@ -52,6 +52,7 @@
     keyWrite,
     landed,
     type Made,
+    myTicketsOf,
     nextKey,
     postCard,
     postJira,
@@ -211,6 +212,7 @@
 
   const contextSources = () => contextCards(fetch, resolve('/api/cards/context'));
   const nextLocalKey = (board: BoardKind) => nextKey(fetch, `${resolve('/api/cards/next')}?board=${board}`);
+  const myTickets = () => myTicketsOf(fetch, resolve('/api/tickets/mine'));
   // The layout carries the system, so the next dialog opens on Jira as well.
   async function connectJira(form: { site: string; email: string; token: string }) {
     const answer = await postJira(fetch, resolve('/api/tickets/jira'), form);
@@ -690,6 +692,7 @@
       off={page.data.offBoards ?? []}
       sources={contextSources}
       next={nextLocalKey}
+      mine={myTickets}
       tickets={page.data.tickets ?? 'local'}
       onconnect={connectJira}
       onsubmit={addCard} onclose={addClosed} bind:draft={cardDraft} />

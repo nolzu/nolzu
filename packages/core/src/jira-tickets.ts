@@ -118,6 +118,11 @@ export function searchPath(projects: readonly string[], limit: number, after: st
   return `${SEARCH_PATH}?${query}`;
 }
 
+// The open tickets assigned to the account the token belongs to, newest change first. Add card lists
+// them, so a ticket becomes a card with one press. It goes to `searchPath` as the whole query, because
+// it names no project: a person's tickets can sit in any of them.
+export const ASSIGNED_JQL = 'assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC';
+
 interface AdfNode {
   type?: string;
   text?: string;
