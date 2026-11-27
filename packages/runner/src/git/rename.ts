@@ -1,9 +1,10 @@
 import { baseCommit } from './base.ts';
 import { git } from './exec.ts';
+import type { ExpectedPlaces } from './places.ts';
 
 export interface RenameOptions {
-  // Each checkout of the card, with the base its branch started from.
-  checkouts: readonly { path: string; base: string }[];
+  // Each checkout of the card, with the base its branch started from and its place in Nolzu's record.
+  checkouts: readonly { path: string; base: string; place: ExpectedPlaces }[];
   from: string;
   to: string;
   env: Record<string, string>;
@@ -48,16 +49,16 @@ export async function renameFreshBranch(options: RenameOptions): Promise<{ renam
     const ahead = base.code === 0 ? (await run(['rev-list', '--count', `${base.stdout.trim()}..HEAD`])).stdout.trim() : '';
     if (ahead !== '0') return { renamed: false, reason: `${from} has commits of its own, so it keeps its name.` };
   }
-  const moved: string[] = [];
+  const moved: (typeof options.checkouts)[number][] = [];
   for (const checkout of options.checkouts) {
-    const done = await git(['branch', '-m', from, to], { cwd: checkout.path, env: options.env });
+    const done = await git(['branch', '-m', from, to], { cwd: checkout.path, env: options.env, repo: checkout.place });
     if (done.code !== 0) {
       // Git can still refuse here, such as for a branch named `feature` when `to` is feature/APP-1/x.
       // The ones renamed already go back, so the card stays on one name.
-      for (const path of moved) await git(['branch', '-m', to, from], { cwd: path, env: options.env });
+      for (const back of moved) await git(['branch', '-m', to, from], { cwd: back.path, env: options.env, repo: back.place });
       return { renamed: false, reason: `Git refused to rename ${from} to ${to}, so it keeps its name. ${done.stderr.trim()}`.trim() };
     }
-    moved.push(checkout.path);
+    moved.push(checkout);
   }
   return { renamed: true };
 }

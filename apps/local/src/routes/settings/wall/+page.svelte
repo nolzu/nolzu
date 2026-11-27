@@ -43,6 +43,13 @@
     </ul>
   </section>
 
+  <section class="box" aria-labelledby="git-title">
+    <header>
+      <h3 id="git-title">Nolzu's own git</h3>
+    </header>
+    <p class="quiet pad" data-git-wall>{data.git}</p>
+  </section>
+
   <section class="box" aria-labelledby="leaves-title">
     <header>
       <h3 id="leaves-title">What leaves this machine another way</h3>

@@ -1,6 +1,6 @@
 import { render } from 'svelte/server';
 import { expect, it, vi } from 'vitest';
-import { wallGroups } from '@nolzu/runner';
+import { gitWallLine, gitWallReady, wallGroups, wallHere } from '@nolzu/runner';
 // eslint-disable-next-line no-restricted-imports -- a test stub, which belongs to no package
 import { drawnAt } from '../../../../../../test/stubs/app-paths.ts';
 import Page from './+page.svelte';
@@ -10,11 +10,17 @@ const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '
 const groups = wallGroups('darwin');
 const drawn = () => {
   drawnAt('/settings/wall');
-  return render(Page as never, { props: { data: { groups } } } as never);
+  return render(Page as never, { props: { data: { groups, git: gitWallLine({ ready: false, reason: 'bubblewrap is not installed.' }) } } } as never);
 };
 
-it('hands the page the groups the runner builds the wall from, for this system', () => {
-  expect((load as unknown as () => { groups: unknown })()).toEqual({ groups: wallGroups(process.platform) });
+it('hands the page the groups the runner builds the wall from, for this system, and the line for git', () => {
+  expect((load as unknown as () => { groups: unknown })()).toEqual({ groups: wallGroups(process.platform), git: gitWallLine(gitWallReady(wallHere())) });
+});
+
+// Where no wall can start, Nolzu's git runs as before, and the page says so.
+it("says whether Nolzu's own git writes inside a wall", () => {
+  expect(text(drawn().body)).toContain("Nolzu's own git runs without a wall on this machine, because the wall cannot start here. bubblewrap is not installed.");
+  expect(gitWallLine({ ready: true, binary: '/usr/bin/sandbox-exec' })).toContain("Nolzu's own git writes inside a wall too");
 });
 
 // One line per group with its paths folded inside, so the long list reads as a few lines.

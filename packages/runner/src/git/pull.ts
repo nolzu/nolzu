@@ -1,11 +1,14 @@
 import { gitEnv } from './env.ts';
 import type { GitResult } from './exec.ts';
 import { git } from './exec.ts';
+import type { ExpectedPlaces } from './places.ts';
 
 export interface BranchPullOptions {
   // The card's own checkout. Nothing else changes: the person's own folder and every other card's
   // checkout keep their files and their branch.
   worktreePath: string;
+  // The checkout's repository, from Nolzu's record (`cardPlace`).
+  repo: ExpectedPlaces;
   branch: string;
   remote: string;
   env?: Record<string, string>;
@@ -28,7 +31,7 @@ const words = (result: GitResult): string => `${result.stderr.trim()}\n${result.
  */
 export async function pullBranch(options: BranchPullOptions): Promise<BranchPullResult> {
   const env = gitEnv(options.env ?? process.env);
-  const run = (args: readonly string[], signal?: AbortSignal): Promise<GitResult> => git(args, { cwd: options.worktreePath, env, signal });
+  const run = (args: readonly string[], signal?: AbortSignal): Promise<GitResult> => git(args, { cwd: options.worktreePath, env, signal, repo: options.repo });
 
   // Only the fetch can be stopped: it waits on the network, and killing it leaves the checkout as it
   // was. A merge killed halfway would leave the files half written and the index locked.

@@ -168,7 +168,7 @@ export function gitPointers(checkout: string): string {
   return paths.map((path) => `${path} ${id(path)}`).join('\n');
 }
 
-function kindOf(path: string): PathKind | null {
+export function kindOf(path: string): PathKind | null {
   try {
     return statSync(path).isDirectory() ? 'dir' : 'file';
   } catch {

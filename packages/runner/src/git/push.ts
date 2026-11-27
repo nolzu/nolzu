@@ -1,11 +1,14 @@
 import type { GitResult } from './exec.ts';
 import { gitEnv } from './env.ts';
 import { git } from './exec.ts';
+import type { ExpectedPlaces } from './places.ts';
 import { withoutCredentials } from './remote.ts';
 
 export interface PushOptions {
   // The card's own checkout, so the branch pushed is the one the card worked on.
   worktreePath: string;
+  // The checkout's repository from Nolzu's record: the push is checked and pinned to it.
+  repo: ExpectedPlaces;
   branch: string;
   remote: string;
   // The ref it lands on at the remote, such as the upstream's `refs/heads/main`. Defaults to the
@@ -38,7 +41,7 @@ const BEHIND = /\((fetch first|non-fast-forward)\)/;
 export async function pushBranch(options: PushOptions): Promise<PushResult> {
   const env = gitEnv(options.env ?? process.env);
   const run = (args: readonly string[], hooks = false): Promise<GitResult> =>
-    git(args, { cwd: options.worktreePath, env, signal: options.signal, hooks });
+    git(args, { cwd: options.worktreePath, env, signal: options.signal, hooks, repo: options.repo });
 
   // git reads a leading `+` as a forced push and a leading `-` as a flag, such as `--mirror`. A run
   // can point the card's checkout at a branch named either way.

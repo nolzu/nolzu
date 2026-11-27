@@ -3,6 +3,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { RunGit } from './git/base.ts';
 import { PATCH_CAP_BYTES } from './git/diff.ts';
 import { git } from './git/exec.ts';
+import type { ExpectedPlaces } from './git/places.ts';
 
 /**
  * Where a project's knowledge may live.
@@ -194,17 +195,39 @@ export async function* sweptAfter<T>(events: AsyncIterable<T>, sweep: () => void
   }
 }
 
-export async function knowledgeGit(folder: string, env: Record<string, string>, signal?: AbortSignal): Promise<{ run: RunGit; forPatch: RunGit; sweep: () => boolean }> {
+// The repository of a knowledge folder as git answered for it: a plain one by its top folder alone.
+// `recorded` is the top folder Nolzu recorded for the knowledge folder (the `knowledgeRepo` setting):
+// an answer that names another repository is refused on every write.
+const placeOf = (folder: string, top: string, gitDir: string, common: string, recorded: string | null): ExpectedPlaces => {
+  const [work = top, own, shared] = [top, gitDir, common].map((path) => (existsSync(path) ? realpathSync(path) : path));
+  const place = { project: work, workTree: work, ...(shared === own ? {} : { commonDir: shared, gitDir: own }) };
+  if (recorded === null || recorded === work) return place;
+  return {
+    ...place,
+    refuse: `git finds the knowledge folder ${folder} in the repository at ${work}, not at ${recorded}, where Nolzu found it first. Nolzu stopped before running git there. Remove the repository at ${work} if a run made it, or set the knowledge folder again on Settings, Knowledge.`,
+  };
+};
+
+/** The repository a knowledge folder is in, for a git write there, or undefined when it is in none. */
+export async function knowledgePlace(folder: string, env: Record<string, string>, recorded: string | null = null): Promise<ExpectedPlaces | undefined> {
+  const found = await git(['rev-parse', '--path-format=absolute', '--absolute-git-dir', '--show-toplevel', '--git-common-dir'], { cwd: folder, env });
+  const [gitDir, top, common] = found.stdout.trim().split('\n');
+  return found.code === 0 && gitDir !== undefined && top !== undefined && common !== undefined ? placeOf(folder, top, gitDir, common, recorded) : undefined;
+}
+
+export async function knowledgeGit(folder: string, env: Record<string, string>, signal?: AbortSignal, recorded: string | null = null): Promise<{ run: RunGit; forPatch: RunGit; sweep: () => boolean; place: ExpectedPlaces | undefined }> {
   const had = new Set(gitsUnder(folder));
   // A folder that is not there gets the sentence `checkKnowledgeDir` has for it, not git's error.
   const found = existsSync(folder) ? await git(['rev-parse', '--absolute-git-dir', '--show-toplevel', '--git-common-dir'], { cwd: folder, env, signal }) : null;
   const [gitDir, top, common] = found?.stdout.trim().split('\n') ?? [];
   // The shared git folder is pinned too: for a folder in a linked worktree, git reads it from the
   // worktree's `commondir` file, which the run could point at a folder with a config of its own.
-  const pinned =
-    found?.code === 0 && gitDir !== undefined && top !== undefined && common !== undefined ? { ...env, GIT_DIR: gitDir, GIT_WORK_TREE: top, GIT_COMMON_DIR: resolve(folder, common) } : env;
+  const answered = found?.code === 0 && gitDir !== undefined && top !== undefined && common !== undefined;
+  const pinned = answered ? { ...env, GIT_DIR: gitDir, GIT_WORK_TREE: top, GIT_COMMON_DIR: resolve(folder, common) } : env;
+  // A write is checked against the same answer, read before the run, and walled to that repository.
+  const repo = answered ? placeOf(folder, top, gitDir, resolve(folder, common), recorded) : undefined;
   return {
-    run: (args) => git(args, { cwd: folder, env: pinned, signal }),
+    run: (args) => git(args, { cwd: folder, env: pinned, signal, repo }),
     // Reads one character past the cap and no further: `knowledgeDiffs` pipes a file's own content
     // through git, so a note somebody let grow to half a gigabyte would otherwise sit here whole.
     forPatch: (args) => git(args, { cwd: folder, env: pinned, signal, maxStdout: PATCH_CAP_BYTES + 1 }),
@@ -216,5 +239,7 @@ export async function knowledgeGit(folder: string, env: Record<string, string>, 
       for (const path of made) rmSync(path, { recursive: true, force: true });
       return made.length > 0;
     },
+    // The place its writes name, which the caller records when nothing was recorded yet.
+    place: repo,
   };
 }

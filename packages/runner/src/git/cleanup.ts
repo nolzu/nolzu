@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { gitEnv } from './env.ts';
 import { git } from './exec.ts';
 import { listWorktrees } from './list.ts';
+import { projectPlace } from './places.ts';
 import { ownFolder, withCardLock, withRepoLock } from './lock.ts';
 import { checkoutPath, notOwnRepository, repoFolder } from './worktree.ts';
 import { ignoredPaths, parseWorktrees, somePaths } from './porcelain.ts';
@@ -94,7 +95,7 @@ export async function removeWorktree(options: RemoveWorktreeOptions): Promise<Re
     return { ok: false, reason: (error as Error).message };
   }
   const env = gitEnv(options.env ?? process.env);
-  const run = (args: readonly string[]) => git(args, { cwd: at, env, signal: options.signal });
+  const run = (args: readonly string[]) => git(args, { cwd: at, env, signal: options.signal, repo: projectPlace(projectPath, repo) });
 
   if (!existsSync(at)) {
     // A folder that is gone is the same kind of settings mistake as a folder that is no repository,

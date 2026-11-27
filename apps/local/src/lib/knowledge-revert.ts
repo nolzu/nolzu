@@ -4,6 +4,7 @@ import { resolveKnowledgeDir } from '@nolzu/core';
 import { getSetting, knowledgeChange, type KnowledgeChangeRow, revertKnowledgeChange } from '@nolzu/core/node';
 import { type BoardSnapshot, isMaintenanceKey } from '@nolzu/protocol';
 import { git, gitEnv, revertKnowledgeFile, type RunGit } from '@nolzu/runner';
+import { knowledgeRepo } from './db.ts';
 import { knowledgeLane } from './knowledge-page.ts';
 import type { ReviewAnswer } from './knowledge-review.ts';
 
@@ -88,7 +89,8 @@ export async function revertKnowledge(db: DatabaseSync, options: RevertOptions):
   }
 
   const env = options.env ?? process.env;
-  const run: RunGit = (args) => git(args, { cwd: folder, env: gitEnv(env) });
+  const repo = await knowledgeRepo(db, folder, gitEnv(env));
+  const run: RunGit = (args) => git(args, { cwd: folder, env: gitEnv(env), repo });
   try {
     const commit = await revertKnowledgeFile({
       run,

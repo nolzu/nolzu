@@ -4,10 +4,11 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { allowedCommandProblem, parseAllowedCommands, projectRepos, repoKnowledgePath, resolveKnowledgeDir, validateSetting } from '@nolzu/core';
-import { allCardMoves, allRuns, getSetting, peekLocalKey, resolveDataDir } from '@nolzu/core/node';
+import { allCardMoves, allRuns, getSetting, peekLocalKey, resolveDataDir, writeSetting } from '@nolzu/core/node';
 import { BOARD_KINDS, type BoardChoice, choiceLabel, choicesOf, type DeliveryFlow, isResearchKind, RESEARCH_KINDS, type WallLists } from '@nolzu/protocol';
 import { branchName, checkKnowledgeDir, checkoutPath, checkoutRoot, cloneTarget, git, gitCommonDir, gitEnv, parseRemoteUrl, qaCopyRoot, resolvedPath, type RunGit, wallEntryProblem, type WallListName, type WallPlaces, worktreesFolder } from '@nolzu/runner';
 import { projectName } from './app-header.ts';
+import { knowledgeRepo } from './db.ts';
 import { browserCommand } from './bin.ts';
 import { isClosed } from './checkouts.ts';
 import { homePath } from './home-path.ts';
@@ -429,11 +430,16 @@ export async function saveProjectField(db: DatabaseSync, field: string, value: s
   if (field.startsWith(REPO_BASE)) return saveRepoBase(db, field.slice(REPO_BASE.length), typed);
   if (field.startsWith(BOARD)) return switchBoard(db, field.slice(BOARD.length), typed);
   if (field === 'knowledgeDir') {
+    // The repository of the knowledge folder is recorded again for the folder now set.
+    writeSetting(db, 'knowledgeRepo', null);
     if (typed === '') return storeSetting(db, 'knowledgeDir', null);
     const run: RunGit = (args) => git(args, { cwd: typed, env: gitEnv(process.env) });
     const repos = projectRepos({ repos: getSetting(db, 'repos'), baseBranch: getSetting(db, 'baseBranch') }).map((repo) => repo.path);
     const check = await checkKnowledgeDir(typed, { projectPath: getSetting(db, 'projectPath'), run, repos });
-    return check.ok ? storeSetting(db, 'knowledgeDir', typed) : (check.reason ?? `The knowledge folder ${typed} cannot be used.`);
+    if (!check.ok) return check.reason ?? `The knowledge folder ${typed} cannot be used.`;
+    const saved = storeSetting(db, 'knowledgeDir', typed);
+    await knowledgeRepo(db, typed, gitEnv(process.env));
+    return saved;
   }
   if (field === 'allowedCommands') {
     const parsed = parseAllowedCommands(value);

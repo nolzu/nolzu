@@ -5,6 +5,7 @@ import { recipeSectionOf, resolveKnowledgeDir, RUN_RECIPE_FILE, withRecipeSectio
 import { applyKnowledgeChanges, getSetting, type KnowledgeChangeRow, knowledgeChangesOfRun, readRun, returnKnowledgeChanges } from '@nolzu/core/node';
 import { type BoardSnapshot, isMaintenanceKey, repoOfLearnKey } from '@nolzu/protocol';
 import { applyKnowledge, git, gitEnv, type HeldKnowledge, type RunGit } from '@nolzu/runner';
+import { knowledgeRepo } from './db.ts';
 import { knowledgeLane } from './knowledge-page.ts';
 
 /**
@@ -133,7 +134,8 @@ export async function approveKnowledge(db: DatabaseSync, options: ReviewOptions)
   }
 
   const env = options.env ?? process.env;
-  const run: RunGit = (args) => git(args, { cwd: folder, env: gitEnv(env) });
+  const repo = await knowledgeRepo(db, folder, gitEnv(env));
+  const run: RunGit = (args) => git(args, { cwd: folder, env: gitEnv(env), repo });
   try {
     const commit = await applyKnowledge({
       run,

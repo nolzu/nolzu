@@ -141,7 +141,7 @@ it('commits exactly the ticked files and leaves the person staged file staged', 
   one.run('mv', 'old.md', 'new.md');
   const files = (await read(one)).files.filter((file) => file.path !== 'notes.md');
 
-  const done = await commitPaths({ folder: one.dir, message: 'chore: update the Nolzu files', files, env: one.env });
+  const done = await commitPaths({ folder: one.dir, repo: { project: one.dir, workTree: one.dir }, message: 'chore: update the Nolzu files', files, env: one.env });
 
   expect(done.ok).toBe(true);
   expect(one.run('show', '--name-status', '--format=', 'HEAD').trim().split('\n').sort()).toEqual(['A\t.nolzu/phases/plan.md', 'M\tAGENTS.md', 'R100\told.md\tnew.md']);
@@ -154,7 +154,7 @@ it('commits a file whose name is a pattern to git, and not the files it would ma
   one.write('[ab].md', 'brackets\n');
   const files = (await read(one)).files.filter((file) => file.path === '[ab].md');
 
-  expect(await commitPaths({ folder: one.dir, message: 'chore: x', files, env: one.env })).toMatchObject({ ok: true });
+  expect(await commitPaths({ folder: one.dir, repo: { project: one.dir, workTree: one.dir }, message: 'chore: x', files, env: one.env })).toMatchObject({ ok: true });
   expect(one.run('show', '--name-only', '--format=', 'HEAD').trim()).toBe('[ab].md');
   expect(one.run('status', '--porcelain').trim()).toBe('?? a.md');
 });
@@ -164,8 +164,8 @@ it('refuses an empty message, no ticked file and a folder with conflicts', async
   one.write('AGENTS.md', 'newer\n');
   const files = (await read(one)).files;
 
-  expect(await commitPaths({ folder: one.dir, message: '  ', files, env: one.env })).toMatchObject({ ok: false, reason: expect.stringContaining('empty') });
-  expect(await commitPaths({ folder: one.dir, message: 'chore: x', files: [], env: one.env })).toMatchObject({ ok: false, reason: expect.stringContaining('No file is ticked') });
+  expect(await commitPaths({ folder: one.dir, repo: { project: one.dir, workTree: one.dir }, message: '  ', files, env: one.env })).toMatchObject({ ok: false, reason: expect.stringContaining('empty') });
+  expect(await commitPaths({ folder: one.dir, repo: { project: one.dir, workTree: one.dir }, message: 'chore: x', files: [], env: one.env })).toMatchObject({ ok: false, reason: expect.stringContaining('No file is ticked') });
 
   one.run('stash', '-q');
   one.run('checkout', '-q', '-b', 'side');
@@ -181,7 +181,7 @@ it('refuses an empty message, no ticked file and a folder with conflicts', async
   }
   const conflicted = (await read(one)).files;
   expect(conflicted).toEqual([expect.objectContaining({ path: 'notes.md', status: 'conflicted' })]);
-  expect(await commitPaths({ folder: one.dir, message: 'chore: x', files: conflicted, env: one.env })).toMatchObject({ ok: false, reason: expect.stringContaining('conflicts') });
+  expect(await commitPaths({ folder: one.dir, repo: { project: one.dir, workTree: one.dir }, message: 'chore: x', files: conflicted, env: one.env })).toMatchObject({ ok: false, reason: expect.stringContaining('conflicts') });
 });
 
 it('puts a new file back to untracked when git refuses the commit', async () => {
@@ -194,10 +194,10 @@ it('puts a new file back to untracked when git refuses the commit', async () => 
   one.write('draft.md', 'new\n');
   const files = (await read(one)).files;
 
-  expect(await commitPaths({ folder: one.dir, message: 'chore: x', files, hooks: true, env: one.env })).toEqual({ ok: false, reason: 'no' });
+  expect(await commitPaths({ folder: one.dir, repo: { project: one.dir, workTree: one.dir }, message: 'chore: x', files, hooks: true, env: one.env })).toEqual({ ok: false, reason: 'no' });
   expect(one.run('status', '--porcelain').trim()).toBe('?? draft.md');
   // Hooks off, as on the card commit, the same hook does not run.
-  expect(await commitPaths({ folder: one.dir, message: 'chore: x', files, env: one.env })).toMatchObject({ ok: true });
+  expect(await commitPaths({ folder: one.dir, repo: { project: one.dir, workTree: one.dir }, message: 'chore: x', files, env: one.env })).toMatchObject({ ok: true });
 });
 
 it('shows the patch of a changed file and of an untracked one', async () => {
@@ -230,12 +230,12 @@ it('refuses a path that leaves the repository', () => {
 it('refuses a push with no upstream or on no branch', async () => {
   const one = made();
 
-  expect(await pushUpstream({ folder: one.dir, env: one.env })).toMatchObject({ ok: false, reason: expect.stringContaining('main has no upstream') });
+  expect(await pushUpstream({ folder: one.dir, repo: { project: one.dir, workTree: one.dir }, env: one.env })).toMatchObject({ ok: false, reason: expect.stringContaining('main has no upstream') });
   // A remote with no branch to merge from is no upstream either.
   one.run('config', 'branch.main.remote', 'origin');
-  expect(await pushUpstream({ folder: one.dir, env: one.env })).toMatchObject({ ok: false, reason: expect.stringContaining('main has no upstream') });
+  expect(await pushUpstream({ folder: one.dir, repo: { project: one.dir, workTree: one.dir }, env: one.env })).toMatchObject({ ok: false, reason: expect.stringContaining('main has no upstream') });
   one.run('checkout', '-q', '--detach');
-  expect(await pushUpstream({ folder: one.dir, env: one.env })).toMatchObject({ ok: false, reason: expect.stringContaining('on no branch') });
+  expect(await pushUpstream({ folder: one.dir, repo: { project: one.dir, workTree: one.dir }, env: one.env })).toMatchObject({ ok: false, reason: expect.stringContaining('on no branch') });
 });
 
 it('pushes to the upstream, and reports a rejected push without pulling', async () => {
@@ -244,7 +244,7 @@ it('pushes to the upstream, and reports a rejected push without pulling', async 
   one.write('mine.md', 'x\n');
   one.commit('mine');
 
-  expect(await pushUpstream({ folder: one.dir, env: one.env })).toMatchObject({ ok: true });
+  expect(await pushUpstream({ folder: one.dir, repo: { project: one.dir, workTree: one.dir }, env: one.env })).toMatchObject({ ok: true });
   expect(one.run('--git-dir', bare, 'rev-parse', 'main')).toBe(one.run('rev-parse', 'HEAD'));
 
   landElsewhere(one, bare);
@@ -252,7 +252,7 @@ it('pushes to the upstream, and reports a rejected push without pulling', async 
   one.commit('more');
   const head = one.run('rev-parse', 'HEAD');
 
-  const pushed = await pushUpstream({ folder: one.dir, env: one.env });
+  const pushed = await pushUpstream({ folder: one.dir, repo: { project: one.dir, workTree: one.dir }, env: one.env });
 
   expect(pushed).toMatchObject({ ok: false, rejected: true, reason: expect.stringContaining('Pull them in your editor or terminal, then push again') });
   expect(one.run('rev-parse', 'HEAD')).toBe(head);
@@ -284,7 +284,7 @@ it('takes a ticked folder that holds a repository out of the index again without
   one.run('config', 'core.hooksPath', hooks);
   const files: WorkspaceFile[] = [{ path: 'vendor-lib/', oldPath: null, status: 'untracked', staged: false, owner: 'yours' }];
 
-  expect((await commitPaths({ folder: one.dir, message: 'chore: x', files, hooks: true, env: one.env })).ok).toBe(false);
+  expect((await commitPaths({ folder: one.dir, repo: { project: one.dir, workTree: one.dir }, message: 'chore: x', files, hooks: true, env: one.env })).ok).toBe(false);
 
   expect(existsSync(marker)).toBe(false);
   expect(one.run('ls-files', '--stage', '--', 'vendor-lib').trim()).toBe('');

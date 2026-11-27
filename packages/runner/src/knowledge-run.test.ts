@@ -76,7 +76,7 @@ describe('commitKnowledge in a real repository', () => {
   } as Record<string, string>;
 
   const cli = (...args: string[]) => execFileSync('git', args, { cwd: repo, env, encoding: 'utf8' });
-  const run = (args: readonly string[]) => git(args, { cwd: knowledge, env });
+  const run = (args: readonly string[]) => git(args, { cwd: knowledge, env, repo: { project: repo, workTree: repo } });
   const write = (name: string, text: string) => writeFileSync(join(knowledge, name), text);
 
   beforeEach(() => {
@@ -359,7 +359,7 @@ describe('holdKnowledge and applyKnowledge in a real repository', () => {
   } as Record<string, string>;
 
   const cli = (...args: string[]) => execFileSync('git', args, { cwd: repo, env, encoding: 'utf8' });
-  const run = (args: readonly string[]) => git(args, { cwd: knowledge, env });
+  const run = (args: readonly string[]) => git(args, { cwd: knowledge, env, repo: { project: repo, workTree: repo } });
   const write = (name: string, text: string) => writeFileSync(join(knowledge, name), text);
   const read = (name: string) => readFileSync(join(knowledge, name), 'utf8');
   const status = () => cli('status', '--porcelain', '-uall').trim();
@@ -581,7 +581,7 @@ describe('revertKnowledgeFile in a real repository', () => {
   } as Record<string, string>;
 
   const cli = (...args: string[]) => execFileSync('git', args, { cwd: repo, env, encoding: 'utf8' });
-  const run = (args: readonly string[]) => git(args, { cwd: knowledge, env });
+  const run = (args: readonly string[]) => git(args, { cwd: knowledge, env, repo: { project: repo, workTree: repo } });
   const write = (name: string, text: string) => writeFileSync(join(knowledge, name), text);
   const read = (name: string) => readFileSync(join(knowledge, name), 'utf8');
   const status = () => cli('status', '--porcelain', '-uall').trim();
@@ -711,7 +711,7 @@ describe('revertKnowledgeFile in a real repository', () => {
   // the first commit. There is no commit before it, and every path in it is one it added.
   it('takes the first commit of a repository back by removing what it added', async () => {
     const own = mkdtempSync(join(tmpdir(), 'nolzu-knowledge-own-'));
-    const there = (args: readonly string[]) => git(args, { cwd: own, env });
+    const there = (args: readonly string[]) => git(args, { cwd: own, env, repo: { project: own, workTree: own } });
     execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: own, env });
     writeFileSync(join(own, 'stack.md'), 'The stack is TypeScript.\n');
     execFileSync('git', ['add', '-A'], { cwd: own, env });
@@ -797,7 +797,7 @@ describe('knowledgeDiffs in a real repository', () => {
   const cli = (...args: string[]) => execFileSync('git', args, { cwd: repo, env, encoding: 'utf8' });
   // Capped the way the client caps it, so the one test below that asks for a patch over the cap
   // meets the same runner a run meets.
-  const run = (args: readonly string[]) => git(args, { cwd: knowledge, env, maxStdout: PATCH_CAP_BYTES + 1 });
+  const run = (args: readonly string[]) => git(args, { cwd: knowledge, env, maxStdout: PATCH_CAP_BYTES + 1, repo: { project: repo, workTree: repo } });
   const write = (name: string, text: string) => writeFileSync(join(knowledge, name), text);
   const diffs = async (before: readonly string[]) => knowledgeDiffs({ run, before, after: await knowledgeState(run) });
 

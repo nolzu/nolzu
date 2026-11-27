@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, 
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { tempRepo, type TempRepo } from '../../test/temp-repo.ts';
-import { repoPlaces } from './places.ts';
+import { gitLinkOf, pinGitLink, repoPlaces } from './places.ts';
 
 const made: TempRepo[] = [];
 afterEach(() => {
@@ -56,9 +56,39 @@ it('names the folders as the disk does when the record holds the project in anot
   });
 });
 
-it('needs the own git folder from the record for a card checkout', async () => {
+it("finds a card checkout's own git folder as the one in the shared folder that names it, and refuses when two do", async () => {
   const s = setUp();
-  expect(await repoPlaces({ ...s.want, gitDir: undefined }, s.project.env)).toEqual({ ok: false, reason: `Nolzu has no record of the git folder of ${s.card}, so it did not run git there.` });
+  expect(await repoPlaces({ ...s.want, gitDir: undefined }, s.project.env)).toEqual({ ok: true, places: { workTree: realpathSync(s.card), gitDir: s.own, commonDir: s.common } });
+  // Another card's run points its own folder at this checkout: neither is taken for it.
+  writeFileSync(join(s.common, 'worktrees', 'APP-2', 'gitdir'), `${join(realpathSync(s.card), '.git')}\n`);
+  expect(await repoPlaces({ ...s.want, gitDir: undefined }, s.project.env)).toEqual({ ok: false, reason: expect.stringContaining(`No one git folder in ${join(s.common, 'worktrees')} names ${s.card}`) });
+});
+
+// The person's own setup: the project's .git a link to a git folder elsewhere. Allowed where it led when
+// Nolzu first opened the project, for the project and its card checkouts, and refused once it leads
+// anywhere else.
+it("allows a project's .git that is a link only to where it led when Nolzu first opened the project", async () => {
+  const s = setUp();
+  const away = join(s.project.dir, '..', 'kept.git');
+  renameSync(join(s.project.dir, '.git'), away);
+  symlinkSync(away, join(s.project.dir, '.git'));
+  // Each card's .git file names the folder where it is now.
+  for (const key of ['APP-1', 'APP-2']) writeFileSync(join(s.project.dir, 'worktrees', key, '.git'), `gitdir: ${join(realpathSync(away), 'worktrees', key)}\n`);
+  const kept = realpathSync(away);
+  expect(await repoPlaces({ project: s.project.dir, workTree: s.project.dir }, s.project.env)).toEqual({ ok: false, reason: expect.stringContaining('.git is a link') });
+  pinGitLink(s.project.dir, gitLinkOf(s.project.dir));
+  try {
+    expect(await repoPlaces({ project: s.project.dir, workTree: s.project.dir }, s.project.env)).toEqual({ ok: true, places: { workTree: realpathSync(s.project.dir), gitDir: kept, commonDir: kept } });
+    expect(await repoPlaces({ ...s.want, gitDir: undefined }, s.project.env)).toEqual({ ok: true, places: { workTree: realpathSync(s.card), gitDir: join(kept, 'worktrees', 'APP-1'), commonDir: kept } });
+    // The link now leads to another repository's git folder.
+    rmSync(join(s.project.dir, '.git'));
+    symlinkSync(join(s.other.dir, '.git'), join(s.project.dir, '.git'));
+    const refused = { ok: false, reason: `${join(realpathSync(s.project.dir), '.git')} leads to ${realpathSync(join(s.other.dir, '.git'))}, not to ${kept}, where it led when Nolzu first opened the project. Nolzu stopped before running git there. Point it back at ${kept}. If you moved it on purpose, choose the project folder again in Settings, Project.` };
+    expect(await repoPlaces({ project: s.project.dir, workTree: s.project.dir }, s.project.env)).toEqual(refused);
+    expect(await repoPlaces({ ...s.want, gitDir: undefined }, s.project.env)).toEqual(refused);
+  } finally {
+    pinGitLink(s.project.dir, null);
+  }
 });
 
 it("refuses a card checkout whose .git file leads into another repository's git folder", async () => {
@@ -136,14 +166,14 @@ it("refuses a project whose .git is swapped for a link to another repository's, 
 it('refuses a checkout that lost its .git, where git would work in the project repository', async () => {
   const s = setUp();
   rmSync(join(s.card, '.git'));
-  expect(await repoPlaces(s.want, s.project.env)).toEqual({ ok: false, reason: expect.stringContaining('.git is not there') });
+  expect(await repoPlaces(s.want, s.project.env)).toEqual({ ok: false, reason: expect.stringContaining('.git is not there'), missing: true });
 });
 
 it('refuses a work tree outside the project, a missing one, and a plain repository named as a checkout', async () => {
   const s = setUp();
   expect(await repoPlaces({ project: s.project.dir, workTree: s.other.dir }, s.project.env)).toEqual({ ok: false, reason: expect.stringContaining('is outside the project folder') });
   expect(await repoPlaces({ project: s.project.dir, workTree: join(s.project.dir, '..x', '..', '..', 'elsewhere') }, s.project.env)).toEqual({ ok: false, reason: expect.stringContaining('is outside the project folder') });
-  expect(await repoPlaces({ project: s.project.dir, workTree: join(s.project.dir, 'worktrees', 'APP-9') }, s.project.env)).toEqual({ ok: false, reason: expect.stringContaining('is not there') });
+  expect(await repoPlaces({ project: s.project.dir, workTree: join(s.project.dir, 'worktrees', 'APP-9') }, s.project.env)).toEqual({ ok: false, reason: expect.stringContaining('is not there'), missing: true });
   // A card checkout named with no shared folder is held to be a plain repository, which it is not.
   expect((await repoPlaces({ project: s.project.dir, workTree: s.card }, s.project.env)).ok).toBe(false);
   mkdirSync(join(s.project.dir, 'plain'));

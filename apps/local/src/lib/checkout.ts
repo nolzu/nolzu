@@ -4,7 +4,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { NO_REPOSITORY, projectRepos } from '@nolzu/core';
 import { getSetting, reposOfCard } from '@nolzu/core/node';
 import { refinedBranch } from '@nolzu/protocol';
-import { baseCommit, branchName, branchNameProblem, checkoutPath, git, gitEnv, isPlainName, parseStatus, readCardText, renameFreshBranch } from '@nolzu/runner';
+import { baseCommit, branchName, branchNameProblem, cardPlace, checkoutPath, type ExpectedPlaces, git, gitEnv, isPlainName, parseStatus, readCardText, renameFreshBranch } from '@nolzu/runner';
 import { isClosed } from './checkouts.ts';
 import { cardFolder } from './files.ts';
 
@@ -32,7 +32,7 @@ export const noCheckout = (key: string, repo: string): string =>
   `${key} has no checkout${repo === '.' ? '' : ` of ${repo}`}. A run makes one. A closed card has none once its checkouts are removed.`;
 
 export type Checkout =
-  | { ok: true; project: string; path: string; branch: string; base: string; run: (args: readonly string[]) => ReturnType<typeof git> }
+  | { ok: true; project: string; path: string; branch: string; base: string; place: ExpectedPlaces; run: (args: readonly string[]) => ReturnType<typeof git> }
   | { ok: false; reason: string };
 
 /**
@@ -52,10 +52,11 @@ export async function checkoutOf(db: DatabaseSync, key: string, env: Record<stri
   if (!existsSync(join(at, '.git'))) return { ok: false, reason: noCheckout(key, repo) };
   const path = realpathSync(at);
   const forGit = gitEnv(env);
-  const run = (args: readonly string[]) => git(args, { cwd: path, env: forGit });
+  const place = cardPlace(project, key, repo);
+  const run = (args: readonly string[]) => git(args, { cwd: path, env: forGit, repo: place });
   const branch = (await run(['branch', '--show-current'])).stdout.trim();
   if (branch === '') return { ok: false, reason: `The checkout of ${key} is on no branch, so there is nothing to ${what}.` };
-  return { ok: true, project, path, branch, base: picked.base, run };
+  return { ok: true, project, path, branch, base: picked.base, place, run };
 }
 
 // The card's branch is fixed at its first start. Worked out again from a title or a template that
@@ -94,13 +95,13 @@ export const chosenBranch = (db: DatabaseSync, key: string): string | null =>
 
 // Every checkout the card has on disk, with the base its branch started from. A card with one
 // repository needs no list row, the same as `cardRepo`.
-export function cardCheckouts(db: DatabaseSync, key: string): { path: string; base: string }[] {
+export function cardCheckouts(db: DatabaseSync, key: string): { path: string; base: string; place: ExpectedPlaces }[] {
   const project = getSetting(db, 'projectPath');
   if (project === null || !isPlainName(key)) return [];
   const repos = projectRepos({ repos: getSetting(db, 'repos'), baseBranch: getSetting(db, 'baseBranch') });
   const picked = repos.length > 1 ? (reposOfCard(db, key) ?? []) : repos.map((repo) => repo.path);
   return picked
-    .map((repo) => ({ path: checkoutPath(project, key, repo), base: repos.find((one) => one.path === repo)?.base ?? getSetting(db, 'baseBranch') }))
+    .map((repo) => ({ path: checkoutPath(project, key, repo), base: repos.find((one) => one.path === repo)?.base ?? getSetting(db, 'baseBranch'), place: cardPlace(project, key, repo) }))
     .filter((one) => existsSync(join(one.path, '.git')));
 }
 

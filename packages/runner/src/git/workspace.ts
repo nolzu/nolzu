@@ -4,6 +4,7 @@ import { messageProblem, type CommitResult } from './commit.ts';
 import { filePatch, type FilePatch } from './diff.ts';
 import { gitEnv } from './env.ts';
 import { git } from './exec.ts';
+import type { ExpectedPlaces } from './places.ts';
 import { parseStatus } from './porcelain.ts';
 import { pushBranch, pushConfirmation, type PushResult } from './push.ts';
 import { statusEntries } from './read-only-check.ts';
@@ -85,9 +86,9 @@ export function outsideRepo(root: string, path: string): boolean {
   return !`${realpathSync(folder)}${sep}`.startsWith(`${real}${sep}`);
 }
 
-const runIn = (folder: string, env: Record<string, string> | undefined, signal?: AbortSignal) => {
+const runIn = (folder: string, env: Record<string, string> | undefined, signal?: AbortSignal, repo?: ExpectedPlaces) => {
   const given = gitEnv(env ?? process.env);
-  return (args: readonly string[], hooks = false) => git(args, { cwd: folder, env: given, signal, hooks });
+  return (args: readonly string[], hooks = false) => git(args, { cwd: folder, env: given, signal, hooks, repo });
 };
 
 /** One folder of the workspace as git reads it from disk. Never touches the network. */
@@ -130,6 +131,8 @@ export async function repoPatch(options: { folder: string; file: WorkspaceFile; 
 
 export interface CommitPathsOptions {
   folder: string;
+  // The folder's repository, from Nolzu's record (`projectPlace`).
+  repo: ExpectedPlaces;
   message: string;
   // The ticked files, each checked against the status by the caller.
   files: readonly WorkspaceFile[];
@@ -149,7 +152,7 @@ export async function commitPaths(options: CommitPathsOptions): Promise<CommitRe
   const problem = messageProblem(message);
   if (problem !== null) return { ok: false, reason: problem };
   if (options.files.length === 0) return { ok: false, reason: 'No file is ticked. Tick the files to commit, then commit.' };
-  const run = runIn(options.folder, options.env, options.signal);
+  const run = runIn(options.folder, options.env, options.signal, options.repo);
 
   const unmerged = await run(['ls-files', '--unmerged']);
   if (unmerged.code !== 0) return { ok: false, reason: unmerged.stderr.trim() };
@@ -181,7 +184,7 @@ export async function commitPaths(options: CommitPathsOptions): Promise<CommitRe
  * Pushes the current branch to its upstream and nowhere else, never with force. A push the remote turns
  * down because it has newer commits is reported, and nothing is pulled: that is the person's to do.
  */
-export async function pushUpstream(options: { folder: string; hooks?: boolean; env?: Record<string, string>; signal?: AbortSignal }): Promise<PushResult> {
+export async function pushUpstream(options: { folder: string; repo: ExpectedPlaces; hooks?: boolean; env?: Record<string, string>; signal?: AbortSignal }): Promise<PushResult> {
   const run = runIn(options.folder, options.env, options.signal);
   const branch = (await run(['branch', '--show-current'])).stdout.trim();
   if (branch === '') return { ok: false, reason: 'This folder is on no branch, so there is nothing to push. Check out a branch in your editor or terminal first.' };
@@ -191,7 +194,7 @@ export async function pushUpstream(options: { folder: string; hooks?: boolean; e
     return { ok: false, reason: `${branch} has no upstream, so Nolzu does not know where to push it. Push it once with git push -u in a terminal, then push here.` };
   }
   // To the upstream's ref, so the commits land there even when its name differs.
-  const pushed = await pushBranch({ worktreePath: options.folder, branch, to: merge, remote, hooks: options.hooks, env: options.env, signal: options.signal });
+  const pushed = await pushBranch({ worktreePath: options.folder, repo: options.repo, branch, to: merge, remote, hooks: options.hooks, env: options.env, signal: options.signal });
   if (!pushed.ok && pushed.rejected === true) {
     return { ...pushed, reason: `${remote} has commits on ${branch} that this folder does not have. Pull them in your editor or terminal, then push again. Nothing was pulled.` };
   }

@@ -156,7 +156,9 @@ async function fromGit(request: PrDiffRequest, ref: { owner: string; repo: strin
 
   const head = `refs/nolzu/pull/${ref.number}/head`;
   const onto = `refs/nolzu/pull/${ref.number}/base`;
-  const run = (args: readonly string[]) => git(args, { cwd: folder, env: request.gitEnv, signal: request.signal });
+  // A repository folder of the project, from its record.
+  const place = { project: folder, workTree: folder };
+  const run = (args: readonly string[]) => git(args, { cwd: folder, env: request.gitEnv, signal: request.signal, repo: place });
   const first = (text: string) => text.trim().split('\n')[0] ?? '';
   try {
     // ssh in batch mode, as a push, and a time limit: a key prompt or a host that never answers would
@@ -165,6 +167,7 @@ async function fromGit(request: PrDiffRequest, ref: { owner: string; repo: strin
     const fetched = await git(['fetch', '--no-tags', '--quiet', 'origin', `+refs/pull/${ref.number}/head:${head}`, `+refs/heads/${branch}:${onto}`], {
       cwd: folder,
       env,
+      repo: place,
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(FETCH_MS)]),
     }).catch((error: Error) => {
       throw request.signal.aborted ? error : refuse(`git fetch in ${folder} took longer than ${FETCH_MS / 60_000} minutes, so Nolzu stopped it.`);

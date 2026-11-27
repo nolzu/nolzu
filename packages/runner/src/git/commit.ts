@@ -1,6 +1,7 @@
 import { isAbsolute } from 'node:path';
 import { gitEnv } from './env.ts';
 import { git } from './exec.ts';
+import type { ExpectedPlaces } from './places.ts';
 
 export interface CommitMessage {
   subject: string;
@@ -59,6 +60,8 @@ export async function uncommittedDiff(options: { worktreePath: string; env?: Rec
 
 export interface CommitCardOptions {
   worktreePath: string;
+  // The checkout's repository, from Nolzu's record (`cardPlace`).
+  repo: ExpectedPlaces;
   // What the person confirmed in the composer, typed or asked for and then edited.
   message: string;
   // The untracked files they ticked. Tracked changes are always staged, untracked ones never are
@@ -116,7 +119,7 @@ export async function commitCard(options: CommitCardOptions): Promise<CommitResu
   if (only !== undefined && only.length === 0) return { ok: false, reason: 'No file is ticked. Tick the files to commit, then commit.' };
 
   const env = gitEnv(options.env ?? process.env);
-  const run = (args: readonly string[], hooks = false) => git(args, { cwd: options.worktreePath, env, signal: options.signal, hooks });
+  const run = (args: readonly string[], hooks = false) => git(args, { cwd: options.worktreePath, env, signal: options.signal, hooks, repo: options.repo });
   // `:(literal)` so a name holding a bracket or a star means that file and not its siblings.
   const literal = (paths: readonly string[]) => paths.map((path) => `:(literal)${path}`);
 

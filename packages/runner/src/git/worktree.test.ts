@@ -3,6 +3,7 @@ import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, rena
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { tempRepo, type TempRepo } from '../../test/temp-repo.ts';
+import { gitLinkOf, pinGitLink } from './places.ts';
 import { ensureWorktree } from './worktree.ts';
 
 let repo: TempRepo | null = null;
@@ -508,6 +509,8 @@ it('never hands the card the project checkout when the project is itself a linke
   const made = fresh();
   made.run('worktree', 'add', '-q', '../project', '-b', 'project-work');
   const project = join(made.dir, '..', 'project');
+  // Recorded where the project's .git leads, as Nolzu does when it first opens the project.
+  pinGitLink(project, gitLinkOf(project));
   const job = { projectPath: project, key: 'APP-1', branch: 'APP-1-work', baseBranch: 'main', env: made.env };
   const first = await ensureWorktree(job);
   writeFileSync(join(project, 'PERSON.md'), 'half finished\n');
@@ -572,6 +575,8 @@ it('refuses a card path symlinked onto a project that is itself a linked worktre
   const made = fresh();
   made.run('worktree', 'add', '-q', '../project', '-b', 'project-work');
   const project = join(made.dir, '..', 'project');
+  // Recorded where the project's .git leads, as Nolzu does when it first opens the project.
+  pinGitLink(project, gitLinkOf(project));
   const job = { projectPath: project, key: 'APP-1', branch: 'APP-1-work', baseBranch: 'main', env: made.env };
   const first = await ensureWorktree(job);
   writeFileSync(join(project, 'PERSON.md'), 'half finished\n');

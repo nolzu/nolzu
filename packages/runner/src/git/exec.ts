@@ -1,7 +1,13 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { accessSync, constants, existsSync, statSync } from 'node:fs';
-import { delimiter, isAbsolute, join } from 'node:path';
+import { accessSync, constants, existsSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { kindOf, wallHere, type WallReady } from '../wall-detect.ts';
+import { wallCommand, type WallSpec } from '../wall.ts';
+import { type GitCall, gitCall, gitKind, madeFolders } from './commands.ts';
+import { closedGitPaths, CONFIG_WITH_HOOKS, gitWallReady, gitWallSpec, gnupgFolders, GPG_FORMATS, HOOK_IN_WALL, launchGpgAgent, leftBehind, linuxHolds, markedRepo, markRepo, NO_PLACE, thereOrAbove, WALL_REFUSED, writesConfig } from './git-wall.ts';
 import { linkBeforeWrite } from './links.ts';
+import { type ExpectedPlaces, type RepoPlaces, repoPlaces } from './places.ts';
 
 export interface GitResult {
   code: number;
@@ -24,6 +30,14 @@ export interface GitOptions {
   // The folder Nolzu owns the call happens in, the project or the workspace, for a call that makes a
   // folder (`linkBeforeWrite`). Left out, the folder the call runs in.
   owner?: string;
+  // The repository a write works in, from Nolzu's own record. Every write names one: git then writes
+  // inside a wall that allows only its folders, and git is pinned to them (`gitWrite`).
+  repo?: ExpectedPlaces;
+}
+
+// What `spawnGit` adds for a walled write: the wall, and what detection found.
+interface Walled {
+  wall?: { spec: WallSpec; ready: WallReady & { ready: true } };
 }
 
 // The one place that spawns git. It never throws on a non-zero exit, because git reports
@@ -74,12 +88,158 @@ export const GIT_FLAGS = [
 // hooks folder covers every hook manager, because each one is started from a git hook.
 export const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null'];
 
+const refused = (stderr: string): GitResult => ({ code: 128, stdout: '', stderr });
+
 export function git(args: readonly string[], options: GitOptions): Promise<GitResult> {
+  const kind = gitKind(args);
+  if (kind === 'write') return writeGit(args, options);
+  if ((kind === 'network' || kind === 'network-read') && options.repo !== undefined) return pinnedGit(args, options, options.repo);
   // A link a run left where git writes by name would have this call write the file it points to, here
   // outside the wall (`linkBeforeWrite`). Refused like any git failure, with the sentence as stderr.
   const link = linkBeforeWrite(args, options.cwd, options.env, options.owner);
-  if (link !== null) return Promise.resolve({ code: 128, stdout: '', stderr: link });
-  return args[0] === 'add' ? addWithoutGitlinks(args, options) : spawnGit(withFlags(args), options);
+  if (link !== null) return Promise.resolve(refused(link));
+  return run(args, options);
+}
+
+const run = (args: readonly string[], options: GitOptions & Walled): Promise<GitResult> => (args[0] === 'add' ? addWithoutGitlinks(args, options) : spawnGit(withFlags(args), options));
+
+export type PreparedWrite =
+  | { refused: string }
+  // `after` runs once git is done: it removes what a hook left where git writes nothing (`leftBehind`).
+  | { env: Record<string, string>; spec: WallSpec | null; ready: WallReady; temp: string | null; after: () => string | null };
+
+// The places of a repository checked as for a write, or the refusal, which marks it.
+async function checked(place: ExpectedPlaces, env: Record<string, string>, signal?: AbortSignal): Promise<RepoPlaces | { refused: string }> {
+  if (place.refuse !== undefined) {
+    markRepo(place.commonDir ?? join(place.workTree, '.git'), place.refuse);
+    return { refused: place.refuse };
+  }
+  const common = place.commonDir ?? join(place.workTree, '.git');
+  const before = markedRepo(common);
+  if (before !== undefined) return { refused: before };
+  const found = await repoPlaces(place, env, signal);
+  if (found.ok) return found.places;
+  if (found.missing !== true) markRepo(common, found.reason);
+  return { refused: found.reason };
+}
+
+const plainEnv = (env: Record<string, string | undefined>): Record<string, string> => {
+  const copy: Record<string, string> = {};
+  for (const [name, value] of Object.entries(env)) if (value !== undefined) copy[name] = value;
+  return copy;
+};
+const pins = (places: RepoPlaces) => ({ GIT_DIR: places.gitDir, GIT_WORK_TREE: places.workTree, GIT_COMMON_DIR: places.commonDir });
+
+/**
+ * Network git in a repository Nolzu has a record of: checked as a write is, and pinned to the checked
+ * folders, so a `commondir` or a `.git` a hook left cannot lead it to another config. It still runs
+ * without a wall.
+ */
+async function pinnedGit(args: readonly string[], options: GitOptions, place: ExpectedPlaces): Promise<GitResult> {
+  const env = plainEnv(options.env ?? process.env);
+  const places = await checked(place, env, options.signal);
+  if ('refused' in places) return refused(places.refused);
+  const pinned = { ...env, ...pins(places) };
+  const link = linkBeforeWrite(args, options.cwd, pinned, options.owner);
+  if (link !== null) return refused(link);
+  return run(args, { ...options, env: pinned });
+}
+
+// The checkout a `worktree remove` names, as written, or undefined.
+const removed = (call: GitCall): string | undefined => (call.command === 'worktree' && call.rest[0] === 'remove' ? call.rest.slice(1).filter((arg) => !arg.startsWith('-')).at(-1) : undefined);
+
+/**
+ * How a local git write runs: the places of its repository checked against Nolzu's record, git pinned
+ * to them with GIT_DIR, GIT_WORK_TREE and GIT_COMMON_DIR so it cannot find other folders between the
+ * check and the write, and the wall that allows writes only there and in a temp folder of the call's
+ * own (`temp`, which the caller removes). A repository whose places did not match is refused again on
+ * every later write (`markRepo`). Where no wall can start, `spec` is null and git runs as it did
+ * before the wall. `here` is what detection found, passed only by a test.
+ */
+export async function gitWrite(args: readonly string[], options: GitOptions, here?: WallReady): Promise<PreparedWrite> {
+  const place = options.repo;
+  if (place === undefined) {
+    // Loud in the tests, so a caller that names no repository fails there and never reaches a person.
+    if (process.env.VITEST !== undefined) throw new Error(`${NO_PLACE} git ${args.join(' ')}`);
+    return { refused: NO_PLACE };
+  }
+  const call = gitCall(args, options.cwd);
+  const config = writesConfig(call);
+  if (config && options.hooks === true) {
+    if (process.env.VITEST !== undefined) throw new Error(`${CONFIG_WITH_HOOKS} git ${args.join(' ')}`);
+    return { refused: CONFIG_WITH_HOOKS };
+  }
+  const env = plainEnv(options.env ?? process.env);
+  // A folder the call makes, from the folder Nolzu owns it in, with no link followed past that one:
+  // a link swapped in later leads outside the wall, and the wall refuses the write.
+  const owner = resolve(options.owner ?? options.cwd);
+  const wanted = madeFolders(call);
+  let made: string[];
+  try {
+    made = wanted.length === 0 ? [] : wanted.map((folder) => join(realpathSync(owner), relative(owner, resolve(call.folder, folder))));
+  } catch {
+    return { refused: `${owner} is not there, so git could not run in it.` };
+  }
+  let writable: string[];
+  let closed: string[] = [];
+  let places: RepoPlaces | null = null;
+  if (call.command === 'init') {
+    // A new repository: nothing to check yet, and the new folder is all it may write.
+    writable = made;
+  } else {
+    const found = await checked(place, env, options.signal);
+    if ('refused' in found) return found;
+    places = found;
+    const { workTree, gitDir, commonDir } = found;
+    Object.assign(env, pins(found));
+    writable = [workTree, gitDir, commonDir, ...made];
+    closed = closedGitPaths(found, config);
+    // The checkout a removal deletes, only from the project's own checkouts folder.
+    const gone = removed(call);
+    if (gone !== undefined) {
+      const checkouts = join(realpathSync(place.project), 'worktrees');
+      const at = resolve(call.folder, gone);
+      const step = [relative(join(resolve(place.project), 'worktrees'), at), relative(checkouts, at)].find((one) => one !== '' && !one.startsWith('..') && !isAbsolute(one));
+      if (step === undefined) return { refused: `${gone} is not a checkout in ${join(place.project, 'worktrees')}, so Nolzu did not remove it.` };
+      writable.push(join(checkouts, ...step.split(sep)));
+    }
+  }
+  const link = linkBeforeWrite(args, options.cwd, env, options.owner);
+  if (link !== null) return { refused: link };
+  const ready = gitWallReady(here ?? wallHere());
+  const after = (gnupg: string | null) => (places === null ? () => null : leftBehind(places, config, gnupg));
+  if (!ready.ready) return { env, spec: null, ready, temp: null, after: after(null) };
+  // gpg keeps a lock and, on macOS, its agent's socket in its own folder, so a repository that signs
+  // with gpg needs it. An ssh signature needs none.
+  const read = (key: string, type = '') => spawnGit(['config', ...(type === '' ? [] : [type]), '--get', key], { cwd: options.cwd, env, signal: options.signal });
+  const signs = (call.command === 'commit' || call.command === 'merge') && (await read('commit.gpgsign', '--type=bool')).stdout.trim() === 'true' && GPG_FORMATS.has((await read('gpg.format')).stdout.trim());
+  const gnupg = signs ? gnupgFolders(env) : null;
+  // Before the temp folder below, so the agent keeps none of the call's.
+  if (gnupg !== null) launchGpgAgent(env);
+  // A temp folder of the call's own, so git and its programs write in no shared one.
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), 'nolzu-git-')));
+  Object.assign(env, { TMPDIR: temp, TMP: temp, TEMP: temp });
+  const linux = process.platform === 'linux';
+  if (linux && places !== null) linuxHolds(places, config);
+  const there = (paths: string[]) => (linux ? paths.map(thereOrAbove) : paths);
+  return { env, spec: gitWallSpec({ writable: there(writable), closed, temp, gnupg }), ready, temp, after: after(gnupg?.home ?? null) };
+}
+
+async function writeGit(args: readonly string[], options: GitOptions): Promise<GitResult> {
+  const prepared = await gitWrite(args, options);
+  if ('refused' in prepared) return refused(prepared.refused);
+  let result: GitResult;
+  try {
+    result =
+      prepared.spec === null || !prepared.ready.ready
+        ? await run(args, { ...options, env: prepared.env })
+        : await run(args, { ...options, env: prepared.env, wall: { spec: prepared.spec, ready: prepared.ready } });
+  } finally {
+    if (prepared.temp !== null) rmSync(prepared.temp, { recursive: true, force: true });
+  }
+  const left = prepared.after();
+  if (left !== null) return { code: 128, stdout: result.stdout, stderr: left };
+  return options.hooks === true && prepared.spec !== null && result.code !== 0 && WALL_REFUSED.test(result.stderr) ? { ...result, stderr: `${result.stderr.trimEnd()}\n${HOOK_IN_WALL}` } : result;
 }
 
 // The subcommand sits past any `-C <folder>` or `-c <setting>` the caller put first.
@@ -132,7 +292,7 @@ const pathOf = (env: Record<string, string | undefined> | undefined): string | u
 
 // `add` ignores diff.ignoreSubmodules and looks inside every nested repository its paths reach, so each
 // one in the index is left out by name. Nolzu never commits a pointer to another repository anyway.
-async function addWithoutGitlinks(args: readonly string[], options: GitOptions): Promise<GitResult> {
+async function addWithoutGitlinks(args: readonly string[], options: GitOptions & Walled): Promise<GitResult> {
   const index = await spawnGit(['ls-files', '--stage', '-z', '--full-name', '--', ':/'], { cwd: options.cwd, env: options.env, signal: options.signal });
   if (index.code !== 0) return index;
   const skip = index.stdout
@@ -142,7 +302,7 @@ async function addWithoutGitlinks(args: readonly string[], options: GitOptions):
   return spawnGit(skip.length === 0 ? args : [...args, ...(args.includes('--') ? [] : ['--']), ...skip], options);
 }
 
-function spawnGit(args: readonly string[], options: GitOptions): Promise<GitResult> {
+function spawnGit(args: readonly string[], options: GitOptions & Walled): Promise<GitResult> {
   return new Promise((resolve, reject) => {
     if (options.signal?.aborted === true) {
       reject(options.signal.reason instanceof Error ? options.signal.reason : new Error('The git call was aborted.'));
@@ -156,7 +316,15 @@ function spawnGit(args: readonly string[], options: GitOptions): Promise<GitResu
     }
     // quotepath off here and nowhere else, so every caller reads a real path and no caller
     // has to remember the flag.
-    const child = spawn(binary, [...GIT_FLAGS, ...(options.hooks === true ? [] : NO_HOOKS), ...args], {
+    const full = [...GIT_FLAGS, ...(options.hooks === true ? [] : NO_HOOKS), ...args];
+    // The paths of a walled write are real already, so the wall gets them as they are: resolving them
+    // again here would follow a link swapped in since the check.
+    const walled = options.wall === undefined ? null : wallCommand(process.platform, options.wall.spec, binary, full, { kindOf, envFiles: [], bwrap: options.wall.ready.binary });
+    if (walled !== null && 'refused' in walled) {
+      resolve({ code: 128, stdout: '', stderr: walled.refused });
+      return;
+    }
+    const child = spawn(walled?.command ?? binary, walled?.args ?? full, {
       cwd: options.cwd,
       env: options.env,
       stdio: ['ignore', 'pipe', 'pipe'],

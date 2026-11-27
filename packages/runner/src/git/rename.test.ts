@@ -21,8 +21,12 @@ function setUp(branch = 'APP-1-add-a-search-box') {
   return { made, card };
 }
 
+// Each checkout with its place, as Nolzu's record names it: a worktree of the test repository.
+// Each card checkout sits beside its repository, `repo`, in the test's folder.
+const placed = (_made: TempRepo, checkouts: { path: string; base: string }[]) =>
+  checkouts.map((one) => ({ ...one, place: { project: join(one.path, '..'), workTree: one.path, commonDir: join(one.path, '..', 'repo', '.git') } }));
 const rename = (made: TempRepo, checkouts: { path: string; base: string }[], to = 'feature/APP-1/search-box') =>
-  renameFreshBranch({ checkouts, from: 'APP-1-add-a-search-box', to, env: made.env });
+  renameFreshBranch({ checkouts: placed(made, checkouts), from: 'APP-1-add-a-search-box', to, env: made.env });
 
 it('renames a branch that has no upstream and no commit beyond its base', async () => {
   const { made, card } = setUp();
@@ -132,7 +136,7 @@ it('renames a branch with commits of its own when the person picked the name, an
   made.write('../card/search.ts', 'export const search = true;\n');
   made.run('-C', card, 'add', '-A');
   made.run('-C', card, 'commit', '-q', '-m', 'work');
-  const checkouts = [{ path: card, base: 'main' }];
+  const checkouts = placed(made, [{ path: card, base: 'main' }]);
 
   expect(await renameFreshBranch({ checkouts, from: 'APP-1-add-a-search-box', to: 'APP-1-search', env: made.env, byPerson: true })).toEqual({ renamed: true });
   expect(made.run('-C', card, 'branch', '--show-current').trim()).toBe('APP-1-search');
